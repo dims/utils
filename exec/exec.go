@@ -18,10 +18,15 @@ package exec
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	osexec "os/exec"
+	"reflect"
+	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 // ErrExecutableNotFound is returned if the executable is not found.
@@ -96,19 +101,56 @@ func New() Interface {
 	return &executor{}
 }
 
+// fixupGo119Behavior reverts the behavior of osexec.Cmd to what it was before go1.19
+// specifically set the Err field to nil (LookPath returns a new error when the file
+// is resolved to the current directory.
+func fixupGo119Behavior(cmd *osexec.Cmd) *osexec.Cmd {
+	// Err was introduced in 1.19 only so we do this only if we find the field
+	fieldErr := reflect.ValueOf(cmd).Elem().FieldByName("Err")
+	if fieldErr.IsValid() {
+		// osexec.Cmd caches the error from LookPath if any, so clear
+		// it to get the old behavior back.
+		err := (*error)(unsafe.Pointer(fieldErr.Addr().Pointer()))
+		*err = nil
+	}
+	return cmd
+}
+
+// command is an internal method used to clear the error field from LookPath
+func (executor *executor) command(name string, arg ...string) *osexec.Cmd {
+	cmd2 := osexec.Command(name, arg...)
+	// Err was introduced in 1.19 only so we do this only if we find the field
+	field := reflect.ValueOf(cmd2).Elem().FieldByName("Err")
+	if field.IsValid() {
+		// osexec.Cmd caches the error from LookPath if any, so clear
+		// it to get the old behavior back.
+		err := (*error)(unsafe.Pointer(field.Addr().Pointer()))
+		*err = nil
+	}
+	return cmd2
+}
+
 // Command is part of the Interface interface.
 func (executor *executor) Command(cmd string, args ...string) Cmd {
-	return (*cmdWrapper)(osexec.Command(cmd, args...))
+	return (*cmdWrapper)(fixupGo119Behavior(osexec.Command(cmd, args...)))
 }
 
 // CommandContext is part of the Interface interface.
 func (executor *executor) CommandContext(ctx context.Context, cmd string, args ...string) Cmd {
-	return (*cmdWrapper)(osexec.CommandContext(ctx, cmd, args...))
+	return (*cmdWrapper)(fixupGo119Behavior(osexec.CommandContext(ctx, cmd, args...)))
 }
+
+var errDot = errors.New("cannot run executable found relative to current directory")
 
 // LookPath is part of the Interface interface
 func (executor *executor) LookPath(file string) (string, error) {
-	return osexec.LookPath(file)
+	path, err := osexec.LookPath(file)
+	if err != nil {
+		if strings.Contains(err.Error(), errDot.Error()) {
+			err = nil
+		}
+	}
+	return path, handleError(err)
 }
 
 // Wraps exec.Cmd so we can capture errors.
@@ -198,6 +240,8 @@ func handleError(err error) error {
 	switch e := err.(type) {
 	case *osexec.ExitError:
 		return &ExitErrorWrapper{e}
+	case *fs.PathError:
+		return ErrExecutableNotFound
 	case *osexec.Error:
 		if e.Err == osexec.ErrNotFound {
 			return ErrExecutableNotFound
