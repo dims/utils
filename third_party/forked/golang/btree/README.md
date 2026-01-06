@@ -1,10 +1,7 @@
-# BTree implementation for Go
+This package is forked from https://github.com/google/btree.
 
-This package provides an in-memory B-Tree implementation for Go, useful as
-an ordered, mutable data structure.
+The upstream repository is deprecated. Kubernetes maintains this fork to continue supporting existing usage.
 
-The API is based off of the wonderful
-http://godoc.org/github.com/petar/GoLLRB/llrb, and is meant to allow btree to
-act as a drop-in replacement for gollrb trees.
+Only the subset of functionality required by Kubernetes is included. The implementation is based on the generic version introduced in Go 1.18.
 
-See http://godoc.org/github.com/google/btree for documentation.
+The core B-tree algorithm is unchanged from the upstream implementation.
