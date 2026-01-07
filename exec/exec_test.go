@@ -120,7 +120,7 @@ func TestExecutableNotFound(t *testing.T) {
 	}
 }
 
-func TestStopBeforeStart(t *testing.T) {
+func TestStopBeforeStart(_ *testing.T) {
 	cmd := New().Command("echo", "hello")
 
 	// no panic calling Stop before calling Run

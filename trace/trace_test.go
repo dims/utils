@@ -645,7 +645,7 @@ func TestStepThreshold(t *testing.T) {
 	}
 }
 
-func TestParentEndedBeforeChild(t *testing.T) {
+func TestParentEndedBeforeChild(_ *testing.T) {
 	var buf bytes.Buffer
 	klog.SetOutput(&buf)
 	parent := New("foo")

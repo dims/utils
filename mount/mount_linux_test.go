@@ -500,7 +500,7 @@ func TestSensitiveMountOptions(t *testing.T) {
 	}
 }
 
-func contains(slice []string, str string, t *testing.T) bool {
+func contains(slice []string, str string, _ *testing.T) bool {
 	optionsIndex := -1
 	for i, s := range slice {
 		if s == "-o" {
