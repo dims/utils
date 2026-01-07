@@ -66,7 +66,7 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.60.1
-          args: --disable-all -v -E govet -E misspell -E gofmt -E ineffassign
+          args: --disable-all -v -E govet -E misspell -E gofmt -E ineffassign -E revive
   apidiff:
     runs-on: ubuntu-latest
     if: github.base_ref
