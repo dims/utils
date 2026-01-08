@@ -38,7 +38,7 @@ func (mounter *ErrorMounter) Mount(source string, target string, fstype string, 
 	return mounter.MountSensitive(source, target, fstype, options, nil /* sensitiveOptions */)
 }
 
-func (mounter *ErrorMounter) MountSensitive(source string, target string, fstype string, options []string, sensitiveOptions []string) error {
+func (mounter *ErrorMounter) MountSensitive(source string, target string, fstype string, options []string, _ []string) error {
 	i := mounter.errIndex
 	mounter.errIndex++
 	if mounter.err != nil && mounter.err[i] != nil {
@@ -283,7 +283,7 @@ func TestSafeFormatAndMount(t *testing.T) {
 func makeFakeCmd(fakeCmd *testingexec.FakeCmd, cmd string, args ...string) testingexec.FakeCommandAction {
 	c := cmd
 	a := args
-	return func(cmd string, args ...string) exec.Cmd {
+	return func(_ string, _ ...string) exec.Cmd {
 		command := testingexec.InitFakeCmd(fakeCmd, c, a...)
 		return command
 	}

@@ -88,7 +88,7 @@ func TestRemove(t *testing.T) {
 	}
 }
 
-func TestGetRace(t *testing.T) {
+func TestGetRace(_ *testing.T) {
 	// size to force eviction and exercise next,curr,prev list behavior
 	lru := New(25)
 
@@ -153,7 +153,7 @@ func TestSetEviction(t *testing.T) {
 		t.Errorf("unexpected eviction data: key=%v val=%v", seenKey, seenVal)
 	}
 
-	err = lru.SetEvictionFunc(func(key Key, value interface{}) {})
+	err = lru.SetEvictionFunc(func(_ Key, _ interface{}) {})
 	if err == nil {
 		t.Errorf("expected error but got none")
 	}

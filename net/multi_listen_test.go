@@ -101,7 +101,7 @@ var _ net.Listener = &fakeListener{}
 
 func listenFuncFactory(listeners []*fakeListener) func(_ context.Context, network string, address string) (net.Listener, error) {
 	index := 0
-	return func(_ context.Context, network string, address string) (net.Listener, error) {
+	return func(_ context.Context, _ string, address string) (net.Listener, error) {
 		if index < len(listeners) {
 			host, portStr, err := net.SplitHostPort(address)
 			if err != nil {

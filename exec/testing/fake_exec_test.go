@@ -130,7 +130,7 @@ func getFakeExecWithScripts(exactOrder bool, disableScripts bool) *FakeExec {
 func makeFakeCmd(fakeCmd *FakeCmd, cmd string, args ...string) FakeCommandAction {
 	c := cmd
 	a := args
-	return func(cmd string, args ...string) exec.Cmd {
+	return func(_ string, _ ...string) exec.Cmd {
 		command := InitFakeCmd(fakeCmd, c, a...)
 		return command
 	}
