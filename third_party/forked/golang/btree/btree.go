@@ -483,9 +483,12 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 	var index int
 	switch dir {
 	case ascend:
-		if start.valid {
+		// Past the start, every item is greater than it: nothing to find.
+		if start.valid && !hit {
 			index, _ = n.items.find(start.item, n.cow.less)
 		}
+		// If the last item is below the stop, every item is.
+		allBelowStop := !stop.valid || len(n.items) == 0 || n.cow.less(n.items[len(n.items)-1], stop.item)
 		for i := index; i < len(n.items); i++ {
 			if len(n.children) > 0 {
 				if hit, ok = n.children[i].iterate(dir, start, stop, includeStart, hit, iter); !ok {
@@ -497,7 +500,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 				continue
 			}
 			hit = true
-			if stop.valid && !n.cow.less(n.items[i], stop.item) {
+			if !allBelowStop && !n.cow.less(n.items[i], stop.item) {
 				return hit, false
 			}
 			if !iter(n.items[i]) {
@@ -510,7 +513,8 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 			}
 		}
 	case descend:
-		if start.valid {
+		// Mirror of the ascend case.
+		if start.valid && !hit {
 			index, found = n.items.find(start.item, n.cow.less)
 			if !found {
 				index = index - 1
@@ -518,6 +522,7 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 		} else {
 			index = len(n.items) - 1
 		}
+		allAboveStop := !stop.valid || len(n.items) == 0 || n.cow.less(stop.item, n.items[0])
 		for i := index; i >= 0; i-- {
 			if start.valid && !n.cow.less(n.items[i], start.item) {
 				if !includeStart || hit || n.cow.less(start.item, n.items[i]) {
@@ -529,8 +534,8 @@ func (n *node[T]) iterate(dir direction, start, stop optionalItem[T], includeSta
 					return hit, false
 				}
 			}
-			if stop.valid && !n.cow.less(stop.item, n.items[i]) {
-				return hit, false //	continue
+			if !allAboveStop && !n.cow.less(stop.item, n.items[i]) {
+				return hit, false
 			}
 			hit = true
 			if !iter(n.items[i]) {
