@@ -1,0 +1,53 @@
+goos: linux
+goarch: amd64
+cpu: Intel(R) Core(TM) Ultra 9 285K
+BenchmarkStringKeyGet/degree=16-24   	 3154784	       409.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 3085512	       377.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 3030526	       375.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 3108013	       390.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 3067454	       389.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 3247238	       395.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 2860084	       377.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-24   	 2950208	       379.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3195146	       369.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3147390	       366.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 2931861	       349.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3250593	       366.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3029853	       353.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3216859	       362.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3295198	       351.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-24   	 3082318	       353.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  510484	      2085 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  642864	      2137 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  518151	      1992 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  513620	      2020 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  623949	      2097 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  513720	      1978 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  559842	      2031 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-24    	  640492	      2062 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendRange-24     	  912159	      1428 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  825240	      1459 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  916308	      1515 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  952659	      1404 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  953649	      1437 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  986641	      1457 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  933784	      1469 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-24     	  834578	      1506 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendScan-24      	   27547	     39840 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   30216	     39643 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   30302	     39910 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   28214	     40796 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   29389	     41391 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   27637	     39733 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   28303	     40083 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-24      	   28699	     40600 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5521	    213159 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5823	    210159 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    4737	    231597 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5194	    233129 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    4784	    231128 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5756	    215532 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5407	    214128 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-24     	    5862	    206637 ns/op	     117 B/op	       3 allocs/op
+PASS
+ok  	expnew/ext	80.628s

@@ -1,0 +1,18 @@
+goos: darwin
+goarch: arm64
+pkg: go.etcd.io/etcd/cache/v3
+cpu: Apple M4 Pro
+BenchmarkAuditGetSingle/store.Get/n=100000-14         	  795896	       639.9 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/store.Get/n=100000-14         	  788530	       645.5 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/store.Get/n=100000-14         	  985665	       630.6 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=100000-14         	  849457	       594.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=100000-14         	  978061	       564.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=100000-14         	  874783	       585.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetSingle/store.Get/n=1000000-14                   	  453285	      1250 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/store.Get/n=1000000-14                   	  437744	      1214 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/store.Get/n=1000000-14                   	  453171	      1209 ns/op	      80 B/op	       3 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=1000000-14        	  449269	      1223 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=1000000-14        	  449914	      1204 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetSingle/tree.Get-reusedProbe/n=1000000-14        	  443902	      1212 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	go.etcd.io/etcd/cache/v3	7.664s

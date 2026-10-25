@@ -1,0 +1,46 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/counts
+cpu: Apple M4 Pro
+BenchmarkWrite/replace/baseline/100k-14         	 3519673	       340.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/baseline/100k-14         	 3507858	       342.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/counts/100k-14           	 3524821	       344.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/counts/100k-14           	 3469888	       345.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/baseline/100k-14    	 1917057	       624.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/baseline/100k-14    	 1910061	       624.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/counts/100k-14      	 1896333	       634.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/counts/100k-14      	 1895430	       631.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/cloneDeleteInsert/baseline/100k-14         	 1000000	      1207 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkWrite/cloneDeleteInsert/baseline/100k-14         	 1000000	      1210 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkWrite/cloneDeleteInsert/counts/100k-14           	 1000000	      1221 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkWrite/cloneDeleteInsert/counts/100k-14           	  905916	      1233 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkWrite/replace/baseline/1M-14                     	  713758	      1537 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/baseline/1M-14                     	 1000000	      1517 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/counts/1M-14                       	  890042	      1529 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/replace/counts/1M-14                       	  748452	      1463 ns/op	       0 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/baseline/1M-14                	  530242	      2280 ns/op	       1 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/baseline/1M-14                	  539176	      2280 ns/op	       1 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/counts/1M-14                  	  521280	      2322 ns/op	       1 B/op	       0 allocs/op
+BenchmarkWrite/deleteInsert/counts/1M-14                  	  496183	      2306 ns/op	       1 B/op	       0 allocs/op
+BenchmarkWrite/cloneDeleteInsert/baseline/1M-14           	  426724	      3040 ns/op	    2258 B/op	      15 allocs/op
+BenchmarkWrite/cloneDeleteInsert/baseline/1M-14           	  350727	      3161 ns/op	    2253 B/op	      15 allocs/op
+BenchmarkWrite/cloneDeleteInsert/counts/1M-14             	  399998	      2840 ns/op	    2256 B/op	      15 allocs/op
+BenchmarkWrite/cloneDeleteInsert/counts/1M-14             	  386300	      3062 ns/op	    2255 B/op	      15 allocs/op
+BenchmarkCount/namespace/walk/100k-14                     	  954292	      1223 ns/op	      67 B/op	       2 allocs/op
+BenchmarkCount/namespace/walk/100k-14                     	  966873	      1230 ns/op	      67 B/op	       2 allocs/op
+BenchmarkCount/namespace/CountRange/100k-14               	 2861022	       409.2 ns/op	      67 B/op	       2 allocs/op
+BenchmarkCount/namespace/CountRange/100k-14               	 2789510	       412.0 ns/op	      67 B/op	       2 allocs/op
+BenchmarkCount/all/walk/100k-14                           	    4137	    284013 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/walk/100k-14                           	    4094	    284588 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/CountRange/100k-14                     	 6070755	       192.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/CountRange/100k-14                     	 6441786	       191.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/namespace/walk/1M-14                       	  186232	      6221 ns/op	      71 B/op	       2 allocs/op
+BenchmarkCount/namespace/walk/1M-14                       	  173688	      5900 ns/op	      71 B/op	       2 allocs/op
+BenchmarkCount/namespace/CountRange/1M-14                 	 1627716	       732.3 ns/op	      71 B/op	       2 allocs/op
+BenchmarkCount/namespace/CountRange/1M-14                 	 1603465	       793.1 ns/op	      71 B/op	       2 allocs/op
+BenchmarkCount/all/walk/1M-14                             	     354	   3261513 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/walk/1M-14                             	     345	   3275914 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/CountRange/1M-14                       	 5153727	       236.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCount/all/CountRange/1M-14                       	 5145188	       239.5 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	btreeproto/counts	171.198s

@@ -1,0 +1,24 @@
+// This is a generated file. Do not edit directly.
+
+go 1.27
+
+toolchain go1.27.1
+
+use (
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/api
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/cache
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/client/pkg
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/client/v3
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/etcdctl
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/etcdutl
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/pkg
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/server
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/tests
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/tests/antithesis/pkg
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/tools/mod
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/tools/rw-heatmaps
+	/Users/dsrinivas/go/src/github.com/etcd-io/etcd/tools/testgrid-analysis
+)
+
+replace k8s.io/utils => /private/tmp/claude-502/-Users-dsrinivas-go-src-k8s-io-utils/d8991197-f1db-40de-9971-e3e62f1d2824/scratchpad/agents/etcd-index/utils-mod

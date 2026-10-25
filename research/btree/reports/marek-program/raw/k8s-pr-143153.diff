@@ -1,0 +1,3333 @@
+diff --git a/pkg/features/kube_features.go b/pkg/features/kube_features.go
+index e3a513a379c52..502b8009e6e56 100644
+--- a/pkg/features/kube_features.go
++++ b/pkg/features/kube_features.go
+@@ -2232,6 +2232,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
+ 		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+ 	},
+ 
++	genericfeatures.ConsistentGetFromCache: {
++		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
++	},
++
+ 	genericfeatures.ConsistentListFromCacheSkipTimeoutFallback: {
+ 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+ 	},
+@@ -2364,6 +2368,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
+ 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
+ 	},
+ 
++	genericfeatures.WatchFromStorageWithoutPrevKV: {
++		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
++	},
++
+ 	genericfeatures.WatchList: {
+ 		{Version: version.MustParse("1.27"), Default: false, PreRelease: featuregate.Alpha},
+ 		{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.Beta},
+@@ -2797,6 +2805,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
+ 
+ 	genericfeatures.ConditionalAuthorization: {},
+ 
++	genericfeatures.ConsistentGetFromCache: {},
++
+ 	genericfeatures.ConsistentListFromCacheSkipTimeoutFallback: {},
+ 
+ 	genericfeatures.ConstrainedImpersonation: {},
+@@ -2850,6 +2860,8 @@ var defaultKubernetesFeatureGateDependencies = map[featuregate.Feature][]feature
+ 
+ 	genericfeatures.WatchCacheInitializationPostStartHook: {},
+ 
++	genericfeatures.WatchFromStorageWithoutPrevKV: {},
++
+ 	genericfeatures.WatchList: {},
+ 
+ 	genericfeatures.WatchListCompression: {},
+diff --git a/staging/src/k8s.io/apiserver/pkg/features/kube_features.go b/staging/src/k8s.io/apiserver/pkg/features/kube_features.go
+index 6329a74cbea72..171e857d15cb1 100644
+--- a/staging/src/k8s.io/apiserver/pkg/features/kube_features.go
++++ b/staging/src/k8s.io/apiserver/pkg/features/kube_features.go
+@@ -89,6 +89,13 @@ const (
+ 	// conditions are enforced during the validating admission phase.
+ 	ConditionalAuthorization featuregate.Feature = "ConditionalAuthorization"
+ 
++	// owner: @serathius
++	// kep: https://kep.k8s.io/6404
++	// beta: v1.38
++	//
++	// Enables serving consistent GET requests from watch cache.
++	ConsistentGetFromCache featuregate.Feature = "ConsistentGetFromCache"
++
+ 	// owner: @yedou37
+ 	//
+ 	// Skip the timeout fallback to storage when a consistent LIST from cache cannot be served,
+@@ -308,6 +315,11 @@ const (
+ 	// Enables post-start-hook for storage readiness
+ 	WatchCacheInitializationPostStartHook featuregate.Feature = "WatchCacheInitializationPostStartHook"
+ 
++	// owner: @shadowofs
++	//
++	// Enables watch cache ingestion without fetching previous values from etcd.
++	WatchFromStorageWithoutPrevKV featuregate.Feature = "WatchFromStorageWithoutPrevKV"
++
+ 	// owner: @p0lyn0mial
+ 	//
+ 	// Allow the API server to stream individual items instead of chunking
+@@ -379,6 +391,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
+ 		{Version: version.MustParse("1.38"), Default: false, PreRelease: featuregate.Alpha},
+ 	},
+ 
++	ConsistentGetFromCache: {
++		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
++	},
++
+ 	ConsistentListFromCacheSkipTimeoutFallback: {
+ 		{Version: version.MustParse("1.37"), Default: false, PreRelease: featuregate.Alpha},
+ 	},
+@@ -511,6 +527,10 @@ var defaultVersionedKubernetesFeatureGates = map[featuregate.Feature]featuregate
+ 		{Version: version.MustParse("1.37"), Default: true, PreRelease: featuregate.GA, LockToDefault: true},
+ 	},
+ 
++	WatchFromStorageWithoutPrevKV: {
++		{Version: version.MustParse("1.38"), Default: true, PreRelease: featuregate.Beta},
++	},
++
+ 	WatchList: {
+ 		{Version: version.MustParse("1.27"), Default: false, PreRelease: featuregate.Alpha},
+ 		{Version: version.MustParse("1.32"), Default: true, PreRelease: featuregate.Beta},
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+index ee414b2b797cf..5b230c1861db0 100644
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store.go
+@@ -142,9 +142,9 @@ type Store struct {
+ 	// default "<resource-prefix>/<namespace>/<name>" or
+ 	// "<resource-prefix>/<name>" format.
+ 	//
+-	// If custom key funcs are supplied without ReverseKeyFunc, storage
+-	// features that need object identity from a key must fall back to decoding
+-	// the stored object.
++	// Custom key funcs may omit ReverseKeyFunc. Ordinary watches decode the
++	// previous object to identify deletions. WatchWithoutPrevKV requires
++	// ReverseKeyFunc because deletion events omit the previous object.
+ 	ReverseKeyFunc storage.ReverseKeyFunc
+ 
+ 	// ObjectNameFunc returns the name of an object or an error.
+diff --git a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
+index 2edf3155248b2..e2e002ccc2d5a 100644
+--- a/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/registry/generic/registry/store_test.go
+@@ -2749,7 +2749,7 @@ func newTestGenericStoreRegistry(t *testing.T, scheme *runtime.Scheme, hasCacheE
+ 	newListFunc := func() runtime.Object { return &example.PodList{} }
+ 
+ 	sc.Codec = apitesting.TestStorageCodec(codecs, examplev1.SchemeGroupVersion)
+-	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "pods"}), newFunc, newListFunc, nil, "/pods")
++	s, dFunc, err := factory.Create(*sc.ForResource(schema.GroupResource{Resource: "pods"}), newFunc, newListFunc, NoNamespaceReverseKeyFunc("/pods"), "/pods")
+ 	if err != nil {
+ 		t.Fatalf("Error creating storage: %v", err)
+ 	}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+index bbde3019efb95..12967aec296f0 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+@@ -523,6 +523,9 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
+ 		attribute.String("audit-id", audit.GetAuditIDTruncated(ctx)),
+ 		attribute.Stringer("type", c.groupResource))
+ 	defer span.End(500 * time.Millisecond)
++	if opts.WatchWithoutPrevKV {
++		return nil, fmt.Errorf("watchWithoutPrevKV is not supported by the cacher")
++	}
+ 	key, err := c.prepareKey(key, opts.Recursive)
+ 	if err != nil {
+ 		return nil, err
+@@ -711,9 +714,6 @@ func (c *Cacher) Get(ctx context.Context, key string, opts storage.GetOptions, o
+ 	if err != nil {
+ 		return err
+ 	}
+-	if opts.ResourceVersion == "" {
+-		return storage.NewInternalError(fmt.Errorf("cacher doesn't support consistent Get"))
+-	}
+ 
+ 	objVal, err := conversion.EnforcePtr(objPtr)
+ 	if err != nil {
+@@ -1377,10 +1377,7 @@ func (c *Cacher) waitUntilWatchCacheFreshAndForceAllEvents(ctx context.Context,
+ 		// In this very rare scenario, the worst case will be that this
+ 		// request will wait for 3 seconds before it fails.
+ 		span := tracing.SpanFromContext(ctx)
+-		c.watchCache.RLock()
+-		span.AddEvent("watchCache locked acquired")
+-		defer c.watchCache.RUnlock()
+-		err := c.watchCache.waitUntilFreshLocked(ctx, requestedWatchRV)
++		err := c.watchCache.waitUntilFresh(ctx, requestedWatchRV)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_test.go
+index 59623b408ea3a..0dc1f2d6fcbf1 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_test.go
+@@ -30,6 +30,7 @@ import (
+ 	corev1 "k8s.io/api/core/v1"
+ 	"k8s.io/apimachinery/pkg/api/apitesting"
+ 	apiequality "k8s.io/apimachinery/pkg/api/equality"
++	"k8s.io/apimachinery/pkg/api/meta"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/fields"
+ 	"k8s.io/apimachinery/pkg/labels"
+@@ -116,9 +117,14 @@ func TestCreateWithKeyExist(t *testing.T) {
+ }
+ 
+ func TestGet(t *testing.T) {
+-	ctx, cacher, terminate := testSetup(t)
+-	t.Cleanup(terminate)
+-	storagetesting.RunTestGet(ctx, t, cacher)
++	for _, consistentGetFromCache := range []bool{true, false} {
++		t.Run(fmt.Sprintf("ConsistentGetFromCache=%v", consistentGetFromCache), func(t *testing.T) {
++			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, consistentGetFromCache)
++			ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
++			t.Cleanup(terminate)
++			storagetesting.RunTestGet(ctx, t, increaseRVFunc(server.V3Client.Client), cacher)
++		})
++	}
+ }
+ 
+ func TestUnconditionalDelete(t *testing.T) {
+@@ -456,98 +462,114 @@ func TestStats(t *testing.T) {
+ 	}
+ }
+ func TestKeySchema(t *testing.T) {
+-	ctx, cacher, terminate := testSetup(t)
++	ctx, cacher, terminate := testSetup(t, func(options *setupOptions) {
++		options.keyFunc = func(obj runtime.Object) (string, error) {
++			accessor, err := meta.Accessor(obj)
++			if err != nil {
++				return "", err
++			}
++			if accessor.GetNamespace() != "" {
++				return options.resourcePrefix + accessor.GetNamespace() + "/" + accessor.GetName(), nil
++			}
++			return options.resourcePrefix + accessor.GetName(), nil
++		}
++	})
+ 	t.Cleanup(terminate)
+ 	storagetesting.RunTestKeySchema(ctx, t, cacher)
+ }
+ 
+ func TestWatch(t *testing.T) {
+-	t.Run("Watch", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatch(ctx, t, cacher)
+-	})
+-	t.Run("WatchFromZero", func(t *testing.T) {
+-		ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatchFromZero(ctx, t, cacher, compactWatch(cacher, server.V3Client.Client))
+-	})
+-	t.Run("DeleteTriggerWatch", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestDeleteTriggerWatch(ctx, t, cacher)
+-	})
+-	t.Run("WatchFromNonZero", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatchFromNonZero(ctx, t, cacher)
+-	})
+-	t.Run("DelayedWatchDelivery", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestDelayedWatchDelivery(ctx, t, cacher)
+-	})
+-	t.Run("WatchError", func(t *testing.T) {
+-		// TODO(#109831): Enable use of this test and run it.
+-	})
+-	t.Run("WatchContextCancel", func(t *testing.T) {
+-		// TODO(#109831): Enable use of this test and run it.
+-	})
+-	t.Run("WatcherTimeout", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatcherTimeout(ctx, t, cacher)
+-	})
+-	t.Run("WatchDeleteEventObjectHaveLatestRV", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, cacher)
+-	})
+-	t.Run("WatchInitializationSignal", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatchInitializationSignal(ctx, t, cacher)
+-	})
+-	t.Run("ClusterScopedWatch", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t, withClusterScopedKeyFunc, withNodeNameAndNamespaceIndex)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestClusterScopedWatch(ctx, t, cacher)
+-	})
+-	t.Run("NamespaceScopedWatch", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t, withNodeNameAndNamespaceIndex)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestNamespaceScopedWatch(ctx, t, cacher)
+-	})
+-	t.Run("WatchDispatchBookmarkEvents", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestWatchDispatchBookmarkEvents(ctx, t, cacher, true)
+-	})
+-	t.Run("WatchBookmarksWithCorrectResourceVersion", func(t *testing.T) {
+-		ctx, cacher, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunTestOptionalWatchBookmarksWithCorrectResourceVersion(ctx, t, cacher)
+-	})
+-	t.Run("SendInitialEventsBackwardCompatibility", func(t *testing.T) {
+-		ctx, store, terminate := testSetup(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunSendInitialEventsBackwardCompatibility(ctx, t, store)
+-	})
+-	t.Run("WatchSemantics", func(t *testing.T) {
+-		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunWatchSemantics(context.TODO(), t, store)
+-	})
+-	t.Run("WatchSemanticInitialEventsExtended", func(t *testing.T) {
+-		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunWatchSemanticInitialEventsExtended(context.TODO(), t, store)
+-	})
+-	t.Run("WatchListMatchSingle", func(t *testing.T) {
+-		store, terminate := testSetupWithEtcdAndCreateWrapper(t)
+-		t.Cleanup(terminate)
+-		storagetesting.RunWatchListMatchSingle(context.TODO(), t, store)
+-	})
++	for _, watchWithoutPrevKV := range []bool{true, false} {
++		t.Run(fmt.Sprintf("WatchWithoutPrevKV=%v", watchWithoutPrevKV), func(t *testing.T) {
++			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchFromStorageWithoutPrevKV, watchWithoutPrevKV)
++			t.Run("Watch", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatch(ctx, t, cacher, true)
++			})
++			t.Run("WatchFromZero", func(t *testing.T) {
++				ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatchFromZero(ctx, t, cacher, compactWatch(cacher, server.V3Client.Client))
++			})
++			t.Run("DeleteTriggerWatch", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestDeleteTriggerWatch(ctx, t, cacher)
++			})
++			t.Run("WatchFromNonZero", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatchFromNonZero(ctx, t, cacher)
++			})
++			t.Run("DelayedWatchDelivery", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestDelayedWatchDelivery(ctx, t, cacher)
++			})
++			t.Run("WatchError", func(t *testing.T) {
++				// TODO(#109831): Enable use of this test and run it.
++			})
++			t.Run("WatchContextCancel", func(t *testing.T) {
++				// TODO(#109831): Enable use of this test and run it.
++			})
++			t.Run("WatcherTimeout", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatcherTimeout(ctx, t, cacher)
++			})
++			t.Run("WatchDeleteEventObjectHaveLatestRV", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, cacher, "test-ns", false, nil)
++			})
++			t.Run("WatchInitializationSignal", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatchInitializationSignal(ctx, t, cacher)
++			})
++			t.Run("ClusterScopedWatch", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t, withClusterScopedKeyFunc, withNodeNameAndNamespaceIndex)
++				t.Cleanup(terminate)
++				storagetesting.RunTestClusterScopedWatch(ctx, t, cacher)
++			})
++			t.Run("NamespaceScopedWatch", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t, withNodeNameAndNamespaceIndex)
++				t.Cleanup(terminate)
++				storagetesting.RunTestNamespaceScopedWatch(ctx, t, cacher)
++			})
++			t.Run("WatchDispatchBookmarkEvents", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestWatchDispatchBookmarkEvents(ctx, t, cacher, true)
++			})
++			t.Run("WatchBookmarksWithCorrectResourceVersion", func(t *testing.T) {
++				ctx, cacher, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunTestOptionalWatchBookmarksWithCorrectResourceVersion(ctx, t, cacher)
++			})
++			t.Run("SendInitialEventsBackwardCompatibility", func(t *testing.T) {
++				ctx, store, terminate := testSetup(t)
++				t.Cleanup(terminate)
++				storagetesting.RunSendInitialEventsBackwardCompatibility(ctx, t, store)
++			})
++			t.Run("WatchSemantics", func(t *testing.T) {
++				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
++				t.Cleanup(terminate)
++				storagetesting.RunWatchSemantics(context.TODO(), t, store)
++			})
++			t.Run("WatchSemanticInitialEventsExtended", func(t *testing.T) {
++				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
++				t.Cleanup(terminate)
++				storagetesting.RunWatchSemanticInitialEventsExtended(context.TODO(), t, store)
++			})
++			t.Run("WatchListMatchSingle", func(t *testing.T) {
++				store, terminate := testSetupWithEtcdAndCreateWrapper(t)
++				t.Cleanup(terminate)
++				storagetesting.RunWatchListMatchSingle(context.TODO(), t, store)
++			})
++		})
++	}
+ }
+ 
+ // ===================================================
+@@ -559,6 +581,7 @@ type tearDownFunc func()
+ type setupOptions struct {
+ 	resourcePrefix string
+ 	keyFunc        func(runtime.Object) (string, error)
++	reverseKeyFunc storage.ReverseKeyFunc
+ 	indexerFuncs   map[string]storage.IndexerFunc
+ 	indexers       cache.Indexers
+ 	clock          clock.WithTicker
+@@ -573,12 +596,14 @@ func withDefaults(options *setupOptions) {
+ 
+ 	options.resourcePrefix = prefix
+ 	options.keyFunc = func(obj runtime.Object) (string, error) { return storage.NamespaceKeyFunc(prefix, obj) }
++	options.reverseKeyFunc = storagetesting.PodReverseKeyFunc(prefix, true)
+ 	options.clock = clock.RealClock{}
+ 	options.codec = examplev1ProtoCodec
+ 	options.transformer = identity.NewEncryptCheckTransformer()
+ }
+ 
+ func withClusterScopedKeyFunc(options *setupOptions) {
++	options.reverseKeyFunc = storagetesting.PodReverseKeyFunc(options.resourcePrefix, false)
+ 	options.keyFunc = func(obj runtime.Object) (string, error) {
+ 		return storage.NoNamespaceKeyFunc(options.resourcePrefix, obj)
+ 	}
+@@ -631,7 +656,7 @@ func testSetupWithEtcdServer(t testing.TB, opts ...setupOption) (context.Context
+ 		opt(&setupOpts)
+ 	}
+ 
+-	server, etcdStorage := newEtcdTestStorageWithOptions(t, etcd3testing.PathPrefix(), setupOpts.codec, setupOpts.transformer)
++	server, etcdStorage := newEtcdTestStorageWithOptions(t, etcd3testing.PathPrefix(), setupOpts.codec, setupOpts.transformer, setupOpts.reverseKeyFunc)
+ 	// Inject one list error to make sure we test the relist case.
+ 	listErrors := 1
+ 	if clientfeatures.FeatureGates().Enabled(clientfeatures.WatchListClient) {
+@@ -852,7 +877,12 @@ func BenchmarkStoreStats(b *testing.B) {
+ }
+ 
+ func TestCorrectness(t *testing.T) {
+-	ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
+-	t.Cleanup(terminate)
+-	correctness.RunTestCorrectness(ctx, t, cacher, etcd3testing.PathPrefix(), cacher.cacher.watchCache.config.keyFunc, compactStore(cacher, server.V3Client.Client))
++	for _, consistentGetFromCache := range []bool{true, false} {
++		t.Run(fmt.Sprintf("ConsistentGetFromCache=%v", consistentGetFromCache), func(t *testing.T) {
++			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, consistentGetFromCache)
++			ctx, cacher, server, terminate := testSetupWithEtcdServer(t)
++			t.Cleanup(terminate)
++			correctness.RunTestCorrectness(ctx, t, cacher, etcd3testing.PathPrefix(), cacher.cacher.watchCache.config.keyFunc, compactStore(cacher, server.V3Client.Client))
++		})
++	}
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+index e60800a7fd24b..91ae648143698 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_testing_utils_test.go
+@@ -77,10 +77,10 @@ func newEtcdTestStorage(t testing.TB, prefix string) (*etcd3testing.EtcdTestServ
+ }
+ 
+ func newEtcdTestStorageWithCodec(t testing.TB, prefix string, codec runtime.Codec) (*etcd3testing.EtcdTestServer, storage.Interface) {
+-	return newEtcdTestStorageWithOptions(t, prefix, codec, identity.NewEncryptCheckTransformer())
++	return newEtcdTestStorageWithOptions(t, prefix, codec, identity.NewEncryptCheckTransformer(), storagetesting.PodReverseKeyFunc("/pods/", true))
+ }
+ 
+-func newEtcdTestStorageWithOptions(t testing.TB, prefix string, codec runtime.Codec, transformer value.Transformer) (*etcd3testing.EtcdTestServer, storage.Interface) {
++func newEtcdTestStorageWithOptions(t testing.TB, prefix string, codec runtime.Codec, transformer value.Transformer, reverseKeyFunc storage.ReverseKeyFunc) (*etcd3testing.EtcdTestServer, storage.Interface) {
+ 	server, _ := etcd3testing.NewUnsecuredEtcd3TestClientServer(t)
+ 	versioner := storage.APIObjectVersioner{}
+ 	compactor := etcd3.NewCompactor(server.V3Client.Client, 0, clock.RealClock{}, nil)
+@@ -91,7 +91,7 @@ func newEtcdTestStorageWithOptions(t testing.TB, prefix string, codec runtime.Co
+ 		codec,
+ 		newPod,
+ 		newPodList,
+-		nil,
++		reverseKeyFunc,
+ 		prefix,
+ 		"/pods/",
+ 		schema.GroupResource{Resource: "pods"},
+@@ -123,7 +123,7 @@ func benchmarkEtcdTestStorage(t testing.TB) (*etcd3testing.EtcdTestServer, stora
+ 		config.Codec,
+ 		config.NewFunc,
+ 		config.NewListFunc,
+-		nil,
++		storagetesting.PodReverseKeyFunc(config.ResourcePrefix, true),
+ 		etcd3testing.PathPrefix(),
+ 		config.ResourcePrefix,
+ 		config.GroupResource,
+@@ -146,9 +146,7 @@ func compactWatch(c *CacheDelegator, client *clientv3.Client) storagetesting.Com
+ 			t.Fatal(err)
+ 		}
+ 
+-		c.cacher.watchCache.RLock()
+-		err = c.cacher.watchCache.waitUntilFreshLocked(context.TODO(), rv)
+-		c.cacher.watchCache.RUnlock()
++		err = c.cacher.watchCache.waitUntilFresh(context.TODO(), rv)
+ 		if err != nil {
+ 			t.Fatalf("WatchCache didn't caught up to RV: %v", rv)
+ 		}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+index e75c47fcf9473..d960fee4434c3 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+@@ -376,9 +376,11 @@ func TestConsistentReadFallback(t *testing.T) {
+ 		skipStorageFallback bool
+ 		watchCacheRV        string
+ 		storageRV           string
++		notFound            bool
+ 		fallbackError       bool
+ 
+ 		expectError             bool
++		expectNotFound          bool
+ 		expectTooManyRequests   bool
+ 		expectRV                string
+ 		expectBlock             bool
+@@ -395,6 +397,21 @@ func TestConsistentReadFallback(t *testing.T) {
+ # HELP apiserver_watch_cache_consistent_read_total [ALPHA] Counter for consistent reads from cache.
+ # TYPE apiserver_watch_cache_consistent_read_total counter
+ apiserver_watch_cache_consistent_read_total{fallback="false", group="", resource="pods", success="true"} 1
++`,
++		},
++		{
++			name:                    "Success NotFound",
++			watchCacheRV:            "42",
++			storageRV:               "42",
++			notFound:                true,
++			expectError:             true,
++			expectNotFound:          true,
++			expectRV:                "42",
++			expectRequestsToStorage: 1,
++			expectMetric: `
++# HELP apiserver_watch_cache_consistent_read_total [ALPHA] Counter for consistent reads from cache.
++# TYPE apiserver_watch_cache_consistent_read_total counter
++apiserver_watch_cache_consistent_read_total{fallback="false", group="", resource="pods", success="true"} 1
+ `,
+ 		},
+ 		{
+@@ -408,6 +425,22 @@ apiserver_watch_cache_consistent_read_total{fallback="false", group="", resource
+ # HELP apiserver_watch_cache_consistent_read_total [ALPHA] Counter for consistent reads from cache.
+ # TYPE apiserver_watch_cache_consistent_read_total counter
+ apiserver_watch_cache_consistent_read_total{fallback="true", group="", resource="pods", success="true"} 1
++`,
++		},
++		{
++			name:                    "Fallback NotFound",
++			watchCacheRV:            "2",
++			storageRV:               "42",
++			notFound:                true,
++			expectError:             true,
++			expectNotFound:          true,
++			expectRV:                "42",
++			expectBlock:             true,
++			expectRequestsToStorage: 2,
++			expectMetric: `
++# HELP apiserver_watch_cache_consistent_read_total [ALPHA] Counter for consistent reads from cache.
++# TYPE apiserver_watch_cache_consistent_read_total counter
++apiserver_watch_cache_consistent_read_total{fallback="true", group="", resource="pods", success="true"} 1
+ `,
+ 		},
+ 		{
+@@ -440,104 +473,150 @@ apiserver_watch_cache_consistent_read_total{fallback="skipped", group="", resour
+ `,
+ 		},
+ 	}
+-	for _, tc := range tcs {
+-		t.Run(tc.name, func(t *testing.T) {
+-			forceRequestWatchProgressSupport(t)
+-			if tc.skipStorageFallback {
+-				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentListFromCacheSkipTimeoutFallback, true)
+-			}
+-
+-			registry := k8smetrics.NewKubeRegistry()
+-			metrics.ConsistentReadTotal.Reset()
+-			if err := registry.Register(metrics.ConsistentReadTotal); err != nil {
+-				t.Errorf("unexpected error: %v", err)
+-			}
+-			backingStorage := &cachertesting.MockStorage{}
+-			backingStorage.GetListFn = func(_ context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
+-				podList := listObj.(*example.PodList)
+-				podList.ResourceVersion = tc.watchCacheRV
+-				return nil
+-			}
+-			c := testingclock.NewFakeClock(time.Now())
+-			cacher, _, err := newTestCacherWithoutSyncing(backingStorage, c)
+-			if err != nil {
+-				t.Fatalf("Couldn't create cacher: %v", err)
+-			}
+-			defer cacher.Stop()
+-			delegator := NewCacheDelegator(cacher, backingStorage)
+-			defer delegator.Stop()
+-			if err := cacher.ready.wait(context.Background()); err != nil {
+-				t.Fatalf("unexpected error waiting for the cache to be ready")
+-			}
+-
+-			if fmt.Sprintf("%d", cacher.watchCache.resourceVersion) != tc.watchCacheRV {
+-				t.Fatalf("Expected watch cache RV to equal watchCacheRV, got: %d, want: %s", cacher.watchCache.resourceVersion, tc.watchCacheRV)
+-			}
+-			requestToStorageCount := 0
+-			backingStorage.GetListFn = func(_ context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
+-				requestToStorageCount += 1
+-				podList := listObj.(*example.PodList)
+-				if key == cacher.resourcePrefix {
+-					podList.ResourceVersion = tc.storageRV
+-					return nil
+-				}
+-				if tc.fallbackError {
+-					return errDummy
+-				}
+-				podList.ResourceVersion = tc.storageRV
+-				return nil
+-			}
+-			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
+-				requestToStorageCount += 1
+-				rv, err := strconv.Atoi(tc.storageRV)
+-				if err != nil {
+-					t.Fatalf("failed to parse RV: %s", err)
++	for _, op := range []string{"GetList", "Get"} {
++		t.Run(op, func(t *testing.T) {
++			for _, tc := range tcs {
++				if op == "GetList" && tc.notFound {
++					continue
+ 				}
+-				return uint64(rv), nil
+-			}
+-			result := &example.PodList{}
++				t.Run(tc.name, func(t *testing.T) {
++					forceRequestWatchProgressSupport(t)
++					featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, true)
++					if tc.skipStorageFallback {
++						featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentListFromCacheSkipTimeoutFallback, true)
++					}
+ 
+-			ctx, clockStepCancelFn := context.WithTimeout(context.TODO(), time.Minute)
+-			defer clockStepCancelFn()
+-			if tc.expectBlock {
+-				go func(ctx context.Context) {
+-					for {
+-						select {
+-						case <-ctx.Done():
+-							return
+-						default:
+-							if c.HasWaiters() {
+-								c.Step(blockTimeout)
++					registry := k8smetrics.NewKubeRegistry()
++					metrics.ConsistentReadTotal.Reset()
++					if err := registry.Register(metrics.ConsistentReadTotal); err != nil {
++						t.Errorf("unexpected error: %v", err)
++					}
++					backingStorage := &cachertesting.MockStorage{}
++					backingStorage.GetListFn = func(_ context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
++						podList := listObj.(*example.PodList)
++						podList.ResourceVersion = tc.watchCacheRV
++						if !tc.notFound {
++							podList.Items = []example.Pod{
++								{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "ns", ResourceVersion: tc.watchCacheRV}},
+ 							}
+-							time.Sleep(time.Millisecond)
+ 						}
++						return nil
++					}
++					c := testingclock.NewFakeClock(time.Now())
++					cacher, _, err := newTestCacherWithoutSyncing(backingStorage, c)
++					if err != nil {
++						t.Fatalf("Couldn't create cacher: %v", err)
++					}
++					defer cacher.Stop()
++					delegator := NewCacheDelegator(cacher, backingStorage)
++					defer delegator.Stop()
++					if err := cacher.ready.wait(context.Background()); err != nil {
++						t.Fatalf("unexpected error waiting for the cache to be ready")
+ 					}
+-				}(ctx)
+-			}
+ 
+-			start := cacher.clock.Now()
+-			err = delegator.GetList(context.TODO(), "/pods/ns", storage.ListOptions{ResourceVersion: "", Recursive: true}, result)
+-			clockStepCancelFn()
+-			duration := cacher.clock.Since(start)
+-			if (err != nil) != tc.expectError {
+-				t.Fatalf("Unexpected error err: %v", err)
+-			}
+-			if tc.expectTooManyRequests && !apierrors.IsTooManyRequests(err) {
+-				t.Fatalf("Unexpected error, got: %v, want TooManyRequests", err)
+-			}
+-			if result.ResourceVersion != tc.expectRV {
+-				t.Fatalf("Unexpected List response RV, got: %q, want: %q", result.ResourceVersion, tc.expectRV)
+-			}
+-			if requestToStorageCount != tc.expectRequestsToStorage {
+-				t.Fatalf("Unexpected number of requests to storage, got: %d, want: %d", requestToStorageCount, tc.expectRequestsToStorage)
+-			}
+-			blocked := duration >= blockTimeout
+-			if blocked != tc.expectBlock {
+-				t.Fatalf("Unexpected block, got: %v, want: %v", blocked, tc.expectBlock)
+-			}
++					if fmt.Sprintf("%d", cacher.watchCache.resourceVersion) != tc.watchCacheRV {
++						t.Fatalf("Expected watch cache RV to equal watchCacheRV, got: %d, want: %s", cacher.watchCache.resourceVersion, tc.watchCacheRV)
++					}
++					requestToStorageCount := 0
++					backingStorage.GetListFn = func(_ context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
++						requestToStorageCount += 1
++						podList := listObj.(*example.PodList)
++						if key == cacher.resourcePrefix {
++							podList.ResourceVersion = tc.storageRV
++							return nil
++						}
++						if tc.fallbackError {
++							return errDummy
++						}
++						podList.ResourceVersion = tc.storageRV
++						return nil
++					}
++					backingStorage.GetFn = func(_ context.Context, key string, opts storage.GetOptions, objPtr runtime.Object) error {
++						requestToStorageCount += 1
++						if tc.fallbackError {
++							return errDummy
++						}
++						if tc.notFound {
++							rv, err := strconv.Atoi(tc.storageRV)
++							if err != nil {
++								t.Fatalf("failed to parse RV: %s", err)
++							}
++							return storage.NewKeyNotFoundError(key, int64(rv))
++						}
++						pod := objPtr.(*example.Pod)
++						pod.Name = "foo"
++						pod.Namespace = "ns"
++						pod.ResourceVersion = tc.storageRV
++						return nil
++					}
++					backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++						requestToStorageCount += 1
++						rv, err := strconv.Atoi(tc.storageRV)
++						if err != nil {
++							t.Fatalf("failed to parse RV: %s", err)
++						}
++						return uint64(rv), nil
++					}
+ 
+-			if err := testutil.GatherAndCompare(registry, strings.NewReader(tc.expectMetric), "apiserver_watch_cache_consistent_read_total"); err != nil {
+-				t.Errorf("unexpected error: %v", err)
++					ctx, clockStepCancelFn := context.WithTimeout(context.TODO(), time.Minute)
++					defer clockStepCancelFn()
++					if tc.expectBlock {
++						go func(ctx context.Context) {
++							for {
++								select {
++								case <-ctx.Done():
++									return
++								default:
++									if c.HasWaiters() {
++										c.Step(blockTimeout)
++									}
++									time.Sleep(time.Millisecond)
++								}
++							}
++						}(ctx)
++					}
++
++					start := cacher.clock.Now()
++					var gotRV string
++					switch op {
++					case "GetList":
++						result := &example.PodList{}
++						err = delegator.GetList(context.TODO(), "/pods/ns", storage.ListOptions{ResourceVersion: "", Recursive: true}, result)
++						gotRV = result.ResourceVersion
++					case "Get":
++						result := &example.Pod{}
++						err = delegator.Get(context.TODO(), "/pods/ns/foo", storage.GetOptions{ResourceVersion: ""}, result)
++						gotRV = result.ResourceVersion
++						if storage.IsNotFound(err) {
++							gotRV = strconv.FormatInt(err.(*storage.StorageError).ResourceVersion, 10)
++						}
++					}
++					clockStepCancelFn()
++					duration := cacher.clock.Since(start)
++					if (err != nil) != tc.expectError {
++						t.Fatalf("Unexpected error err: %v", err)
++					}
++					if tc.expectNotFound && !storage.IsNotFound(err) {
++						t.Fatalf("Unexpected error, got: %v, want NotFound", err)
++					}
++					if tc.expectTooManyRequests && !apierrors.IsTooManyRequests(err) {
++						t.Fatalf("Unexpected error, got: %v, want TooManyRequests", err)
++					}
++					if gotRV != tc.expectRV {
++						t.Fatalf("Unexpected response RV, got: %q, want: %q", gotRV, tc.expectRV)
++					}
++					if requestToStorageCount != tc.expectRequestsToStorage {
++						t.Fatalf("Unexpected number of requests to storage, got: %d, want: %d", requestToStorageCount, tc.expectRequestsToStorage)
++					}
++					blocked := duration >= blockTimeout
++					if blocked != tc.expectBlock {
++						t.Fatalf("Unexpected block, got: %v, want: %v", blocked, tc.expectBlock)
++					}
++
++					if err := testutil.GatherAndCompare(registry, strings.NewReader(tc.expectMetric), "apiserver_watch_cache_consistent_read_total"); err != nil {
++						t.Errorf("unexpected error: %v", err)
++					}
++				})
+ 			}
+ 		})
+ 	}
+@@ -726,33 +805,46 @@ func TestGetListNonRecursiveCacheWithConsistentListFromCache(t *testing.T) {
+ }
+ 
+ func TestGetCacheBypass(t *testing.T) {
+-	backingStorage := &cachertesting.MockStorage{}
+-	cacher, _, err := newTestCacher(backingStorage)
+-	if err != nil {
+-		t.Fatalf("Couldn't create cacher: %v", err)
+-	}
+-	defer cacher.Stop()
+-	delegator := NewCacheDelegator(cacher, backingStorage)
+-	defer delegator.Stop()
++	for _, consistentGetFromCache := range []bool{false, true} {
++		t.Run(fmt.Sprintf("ConsistentGetFromCache=%v", consistentGetFromCache), func(t *testing.T) {
++			forceRequestWatchProgressSupport(t)
++			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, consistentGetFromCache)
+ 
+-	result := &example.Pod{}
++			backingStorage := &cachertesting.MockStorage{}
++			cacher, _, err := newTestCacher(backingStorage)
++			if err != nil {
++				t.Fatalf("Couldn't create cacher: %v", err)
++			}
++			defer cacher.Stop()
++			delegator := NewCacheDelegator(cacher, backingStorage)
++			defer delegator.Stop()
+ 
+-	// Inject error to underlying layer and check if cacher is not bypassed.
+-	backingStorage.InjectGetListError(errDummy)
+-	err = delegator.Get(context.TODO(), "/pods/ns/pod-0", storage.GetOptions{
+-		IgnoreNotFound:  true,
+-		ResourceVersion: "0",
+-	}, result)
+-	if err != nil {
+-		t.Errorf("Get with RV=0 should be served from cache: %v", err)
+-	}
++			result := &example.Pod{}
+ 
+-	err = delegator.Get(context.TODO(), "/pods/ns/pod-0", storage.GetOptions{
+-		IgnoreNotFound:  true,
+-		ResourceVersion: "",
+-	}, result)
+-	if !errors.Is(err, errDummy) {
+-		t.Errorf("Get without RV=0 should bypass cacher: %v", err)
++			// Inject error to underlying layer and check if cacher is not bypassed.
++			backingStorage.InjectGetListError(errDummy)
++			err = delegator.Get(context.TODO(), "/pods/ns/pod-0", storage.GetOptions{
++				IgnoreNotFound:  true,
++				ResourceVersion: "0",
++			}, result)
++			if err != nil {
++				t.Errorf("Get with RV=0 should be served from cache: %v", err)
++			}
++
++			err = delegator.Get(context.TODO(), "/pods/ns/pod-0", storage.GetOptions{
++				IgnoreNotFound:  true,
++				ResourceVersion: "",
++			}, result)
++			if consistentGetFromCache {
++				if err != nil {
++					t.Errorf("Get with RV=\"\" and ConsistentGetFromCache=true should be served from cache: %v", err)
++				}
++			} else {
++				if !errors.Is(err, errDummy) {
++					t.Errorf("Get with RV=\"\" and ConsistentGetFromCache=false should bypass cacher: %v", err)
++				}
++			}
++		})
+ 	}
+ }
+ 
+@@ -3762,10 +3854,12 @@ func TestOptimisticConcurrency(t *testing.T) {
+ 
+ 	for _, tc := range testCases {
+ 		t.Run(tc.name, func(t *testing.T) {
+-			t.Run("Delete", func(t *testing.T) {
++			t.Run("Delete with ConsistentGetFromCache disabled", func(t *testing.T) {
++				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, false)
+ 				var gotDeleteCached runtime.Object
+ 				deleteCalled := false
+-				backingStorage.DeleteFn = func(_ context.Context, _ string, _ runtime.Object, _ *storage.Preconditions, _ storage.ValidateObjectFunc, cachedExistingObject runtime.Object, _ storage.DeleteOptions) error {
++				backingStorage.DeleteFn = func(_ context.Context, _ string, _ runtime.Object, _ *storage.Preconditions, _ storage.ValidateObjectFunc, cachedExistingObject runtime.Object, opts storage.DeleteOptions) error {
++					require.False(t, opts.FailOnConflict)
+ 					deleteCalled = true
+ 					gotDeleteCached = cachedExistingObject
+ 					return nil
+@@ -3779,7 +3873,8 @@ func TestOptimisticConcurrency(t *testing.T) {
+ 				}
+ 			})
+ 
+-			t.Run("GuaranteedUpdate", func(t *testing.T) {
++			t.Run("GuaranteedUpdate with ConsistentGetFromCache disabled", func(t *testing.T) {
++				featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, false)
+ 				var gotUpdateCached runtime.Object
+ 				updateCalled := false
+ 				backingStorage.GuaranteedUpdateFn = func(_ context.Context, _ string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, cachedExistingObject runtime.Object) error {
+@@ -3797,4 +3892,170 @@ func TestOptimisticConcurrency(t *testing.T) {
+ 			})
+ 		})
+ 	}
++
++	t.Run("ConsistentGetFromCache enabled", func(t *testing.T) {
++		forceRequestWatchProgressSupport(t)
++		featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ConsistentGetFromCache, true)
++		key := "/pods/ns/pod-1"
++
++		backingStorage.GetFn = func(_ context.Context, _ string, _ storage.GetOptions, _ runtime.Object) error {
++			t.Fatalf("unexpected backingStorage.Get call")
++			return nil
++		}
++		backingStorage.GuaranteedUpdateFn = func(_ context.Context, _ string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, _ runtime.Object) error {
++			t.Fatalf("unexpected backingStorage.GuaranteedUpdate call")
++			return nil
++		}
++
++		t.Run("GuaranteedUpdate failed precondition waits for watch cache without etcd Get", func(t *testing.T) {
++			updatedPod := cachedPod.DeepCopy()
++			updatedPod.UID = "uid-2"
++			updatedPod.ResourceVersion = "102"
++
++			getRVCalled := false
++			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++				getRVCalled = true
++				require.NoError(t, cacher.watchCache.Update(updatedPod))
++				return 102, nil
++			}
++
++			var seenCached []*example.Pod
++			backingStorage.UpdateFn = func(_ context.Context, k string, _ runtime.Object, _ bool, pre *storage.Preconditions, _ storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++				require.NotNil(t, cachedExistingObject)
++				seenCached = append(seenCached, cachedExistingObject.(*example.Pod))
++				return pre.Check(k, cachedExistingObject)
++			}
++
++			err := delegator.GuaranteedUpdate(context.Background(), key, &example.Pod{}, false, &storage.Preconditions{UID: &uidMismatch}, nil, nil)
++			require.NoError(t, err)
++			require.True(t, getRVCalled)
++			require.Equal(t, []*example.Pod{cachedPod, updatedPod}, seenCached)
++		})
++
++		t.Run("GuaranteedUpdate tryUpdate conflict on stale cache falls back to consistent Get from cache", func(t *testing.T) {
++			updatedPod := cachedPod.DeepCopy()
++			updatedPod.UID = "uid-2"
++			updatedPod.ResourceVersion = "103"
++
++			getRVCalled := false
++			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++				getRVCalled = true
++				require.NoError(t, cacher.watchCache.Update(updatedPod))
++				return 103, nil
++			}
++
++			var seenCached []*example.Pod
++			backingStorage.UpdateFn = func(_ context.Context, _ string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++				require.NotNil(t, cachedExistingObject)
++				pod := cachedExistingObject.(*example.Pod)
++				seenCached = append(seenCached, pod)
++				if pod.ResourceVersion != "103" {
++					return apierrors.NewConflict(example.Resource("pods"), pod.Name, errors.New("stale RV in tryUpdate"))
++				}
++				return nil
++			}
++
++			err := delegator.GuaranteedUpdate(context.Background(), key, &example.Pod{}, false, nil, nil, nil)
++			require.NoError(t, err)
++			require.True(t, getRVCalled)
++			require.Len(t, seenCached, 2)
++			require.Equal(t, "102", seenCached[0].ResourceVersion)
++			require.Equal(t, updatedPod, seenCached[1])
++		})
++
++		t.Run("GuaranteedUpdate conflict reads RV from error and waits for watch cache without etcd Get or GetCurrentResourceVersion", func(t *testing.T) {
++			conflictPod := cachedPod.DeepCopy()
++			conflictPod.UID = "uid-2"
++			conflictPod.ResourceVersion = "104"
++
++			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++				t.Fatalf("unexpected backingStorage.GetCurrentResourceVersion call on conflict")
++				return 0, nil
++			}
++
++			attempts := 0
++			var seenCached []*example.Pod
++			backingStorage.UpdateFn = func(_ context.Context, k string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++				require.NotNil(t, cachedExistingObject)
++				seenCached = append(seenCached, cachedExistingObject.(*example.Pod))
++				attempts++
++				if attempts == 1 {
++					go func() {
++						_ = cacher.watchCache.Update(conflictPod)
++					}()
++					return storage.NewResourceVersionConflictsError(k, 104)
++				}
++				return nil
++			}
++
++			err := delegator.GuaranteedUpdate(context.Background(), key, &example.Pod{}, false, nil, nil, nil)
++			require.NoError(t, err)
++			require.Equal(t, 2, attempts)
++			require.Len(t, seenCached, 2)
++			require.Equal(t, "103", seenCached[0].ResourceVersion)
++			require.Equal(t, conflictPod, seenCached[1])
++		})
++
++		t.Run("Delete failed precondition waits for watch cache without etcd Get", func(t *testing.T) {
++			updatedPod := cachedPod.DeepCopy()
++			updatedPod.UID = "uid-1"
++			updatedPod.ResourceVersion = "105"
++
++			getRVCalled := false
++			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++				getRVCalled = true
++				require.NoError(t, cacher.watchCache.Update(updatedPod))
++				return 105, nil
++			}
++
++			var seenCached []*example.Pod
++			backingStorage.DeleteFn = func(_ context.Context, k string, _ runtime.Object, pre *storage.Preconditions, _ storage.ValidateObjectFunc, cachedExistingObject runtime.Object, opts storage.DeleteOptions) error {
++				require.True(t, opts.FailOnConflict)
++				require.NotNil(t, cachedExistingObject)
++				seenCached = append(seenCached, cachedExistingObject.(*example.Pod))
++				return pre.Check(k, cachedExistingObject)
++			}
++
++			err := delegator.Delete(context.Background(), key, &example.Pod{}, &storage.Preconditions{UID: &uidMatch}, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{})
++			require.NoError(t, err)
++			require.True(t, getRVCalled)
++			require.Len(t, seenCached, 2)
++			require.Equal(t, "104", seenCached[0].ResourceVersion)
++			require.Equal(t, updatedPod, seenCached[1])
++		})
++
++		t.Run("Delete conflict reads RV from error and waits for watch cache without etcd Get or GetCurrentResourceVersion", func(t *testing.T) {
++			conflictPod := cachedPod.DeepCopy()
++			conflictPod.UID = "uid-1"
++			conflictPod.ResourceVersion = "106"
++
++			backingStorage.GetRVFn = func(_ context.Context) (uint64, error) {
++				t.Fatalf("unexpected backingStorage.GetCurrentResourceVersion call on conflict")
++				return 0, nil
++			}
++
++			attempts := 0
++			var seenCached []*example.Pod
++			backingStorage.DeleteFn = func(_ context.Context, k string, _ runtime.Object, _ *storage.Preconditions, _ storage.ValidateObjectFunc, cachedExistingObject runtime.Object, opts storage.DeleteOptions) error {
++				require.True(t, opts.FailOnConflict)
++				require.NotNil(t, cachedExistingObject)
++				seenCached = append(seenCached, cachedExistingObject.(*example.Pod))
++				attempts++
++				if attempts == 1 {
++					go func() {
++						_ = cacher.watchCache.Update(conflictPod)
++					}()
++					return storage.NewResourceVersionConflictsError(k, 106)
++				}
++				return nil
++			}
++
++			err := delegator.Delete(context.Background(), key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{})
++			require.NoError(t, err)
++			require.Equal(t, 2, attempts)
++			require.Len(t, seenCached, 2)
++			require.Equal(t, "105", seenCached[0].ResourceVersion)
++			require.Equal(t, conflictPod, seenCached[1])
++		})
++	})
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+index a5dc57a2fc1b0..2c0d5938ec83c 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+@@ -18,6 +18,7 @@ package cacher
+ 
+ import (
+ 	"context"
++	"fmt"
+ 	"sync"
+ 
+ 	"k8s.io/apimachinery/pkg/api/errors"
+@@ -78,17 +79,76 @@ func (c *CacheDelegator) EnableResourceSizeEstimation(keys storage.KeysFunc) err
+ }
+ 
+ func (c *CacheDelegator) Delete(ctx context.Context, key string, out runtime.Object, preconditions *storage.Preconditions, validateDeletion storage.ValidateObjectFunc, cachedExistingObject runtime.Object, opts storage.DeleteOptions) error {
+-	// Ignore the suggestion and try to pass down the current version of the object
+-	// read from cache.
+-	if obj, exists, _, err := c.cacher.get(ctx, key, "0"); err != nil {
+-		klog.Errorf("GetByKey returned error: %v", err)
+-	} else if exists && preconditions.Check(key, obj) == nil {
+-		// DeepCopy the object since we modify resource version when serializing the
+-		// current object.
+-		return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, obj.DeepCopyObject(), opts)
++	if !c.cacher.Ready() || opts.ExpectTransformOrDecodeError {
++		return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, cachedExistingObject, opts)
++	}
++	if delegator.ShouldDelegateGet(storage.GetOptions{}).ShouldDelegate {
++		// Ignore the suggestion and try to pass down the current version of the object
++		// read from cache.
++		if obj, exists, _, err := c.cacher.get(ctx, key, "0"); err != nil {
++			klog.Errorf("GetByKey returned error: %v", err)
++		} else if exists && preconditions.Check(key, obj) == nil {
++			// DeepCopy the object since we modify resource version when serializing the
++			// current object.
++			return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, obj.DeepCopyObject(), opts)
++		}
++		// If we couldn't get the object, fallback to no-suggestion.
++		return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, nil, opts)
++	}
++
++	key, err := c.cacher.prepareKey(key, false)
++	if err != nil {
++		return err
++	}
++	deleteOpts := opts
++	deleteOpts.FailOnConflict = true
++	fresh := false
++	currObj, exists, readRV, err := c.cacher.get(ctx, key, "0")
++	for {
++		var cachedRV uint64
++		var hasCachedRV bool
++		if err == nil {
++			if !exists {
++				err = storage.NewKeyNotFoundError(key, int64(readRV))
++			} else {
++				if rv, rvErr := c.cacher.versioner.ObjectResourceVersion(currObj); rvErr == nil {
++					cachedRV = rv
++					hasCachedRV = true
++				}
++				err = c.storage.Delete(ctx, key, out, preconditions, validateDeletion, currObj.DeepCopyObject(), deleteOpts)
++				if err == nil {
++					return nil
++				}
++			}
++		}
++		if rv, ok := storage.ResourceVersion(err); ok && storage.IsConflict(err) {
++			klog.V(4).Infof("Delete of %s conflicted, waiting for watch cache to reach revision %s", key, rv)
++			if currObj, exists, readRV, err = c.cacher.get(ctx, key, rv); err != nil {
++				if storage.IsTooLargeResourceVersion(err) {
++					return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, nil, opts)
++				}
++				return err
++			}
++			fresh = true
++			continue
++		}
++		if !fresh {
++			fresh = true
++			var getErr error
++			currObj, exists, readRV, getErr = c.cacher.get(ctx, key, "")
++			if storage.IsTooLargeResourceVersion(getErr) {
++				return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, nil, opts)
++			}
++			if getErr == nil && exists && hasCachedRV {
++				if freshRV, rvErr := c.cacher.versioner.ObjectResourceVersion(currObj); rvErr == nil && freshRV == cachedRV {
++					return err
++				}
++			}
++			err = getErr
++			continue
++		}
++		return err
+ 	}
+-	// If we couldn't get the object, fallback to no-suggestion.
+-	return c.storage.Delete(ctx, key, out, preconditions, validateDeletion, nil, opts)
+ }
+ 
+ func (c *CacheDelegator) Watch(ctx context.Context, key string, opts storage.ListOptions) (watch.Interface, error) {
+@@ -106,9 +166,8 @@ func (c *CacheDelegator) Watch(ctx context.Context, key string, opts storage.Lis
+ }
+ 
+ func (c *CacheDelegator) Get(ctx context.Context, key string, opts storage.GetOptions, objPtr runtime.Object) error {
+-	if opts.ResourceVersion == "" {
+-		// If resourceVersion is not specified, serve it from underlying
+-		// storage (for backward compatibility).
++	result := delegator.ShouldDelegateGet(opts)
++	if result.ShouldDelegate {
+ 		return c.storage.Get(ctx, key, opts, objPtr)
+ 	}
+ 
+@@ -117,13 +176,36 @@ func (c *CacheDelegator) Get(ctx context.Context, key string, opts storage.GetOp
+ 		// as described in https://kep.k8s.io/4568
+ 		return c.storage.Get(ctx, key, opts, objPtr)
+ 	}
+-	// If resourceVersion is specified, serve it from cache.
+-	// It's guaranteed that the returned value is at least that
+-	// fresh as the given resourceVersion.
+ 	if _, err := c.cacher.versioner.ParseResourceVersion(opts.ResourceVersion); err != nil {
+ 		return err
+ 	}
+-	return c.cacher.Get(ctx, key, opts, objPtr)
++	err := c.cacher.Get(ctx, key, opts, objPtr)
++	success := "true"
++	fallback := "false"
++	if err != nil {
++		if result.ConsistentRead {
++			// IsTooLargeResourceVersion occurs when the requested RV is higher than cache's current RV
++			// and cache hasn't caught up within the timeout period.
++			if storage.IsTooLargeResourceVersion(err) {
++				if utilfeature.DefaultFeatureGate.Enabled(features.ConsistentListFromCacheSkipTimeoutFallback) {
++					fallback = "skipped"
++					err = errors.NewTooManyRequests(err.Error(), resourceVersionTooHighRetrySeconds)
++				} else {
++					fallback = "true"
++					err = c.storage.Get(ctx, key, opts, objPtr)
++				}
++			}
++			if err != nil && !storage.IsNotFound(err) {
++				success = "false"
++			}
++			metrics.ConsistentReadTotal.WithLabelValues(c.cacher.groupResource.Group, c.cacher.groupResource.Resource, success, fallback).Add(1)
++		}
++		return err
++	}
++	if result.ConsistentRead {
++		metrics.ConsistentReadTotal.WithLabelValues(c.cacher.groupResource.Group, c.cacher.groupResource.Resource, success, fallback).Add(1)
++	}
++	return nil
+ }
+ 
+ func (c *CacheDelegator) GetList(ctx context.Context, key string, opts storage.ListOptions, listObj runtime.Object) error {
+@@ -188,18 +270,101 @@ func shouldDelegateListOnNotReadyCache(opts storage.ListOptions) bool {
+ 	return noLabelSelector && noFieldSelector && hasLimit
+ }
+ 
++func (c *CacheDelegator) Update(ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	return fmt.Errorf("cacher doesn't support Update")
++}
++
+ func (c *CacheDelegator) GuaranteedUpdate(ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
+-	// Ignore the suggestion and try to pass down the current version of the object
+-	// read from cache.
+-	if obj, exists, _, err := c.cacher.get(ctx, key, "0"); err != nil {
+-		klog.Errorf("GetByKey returned error: %v", err)
+-	} else if exists && preconditions.Check(key, obj) == nil {
+-		// DeepCopy the object since we modify resource version when serializing the
+-		// current object.
+-		return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, obj.DeepCopyObject())
+-	}
+-	// If we couldn't get the object, fallback to no-suggestion.
+-	return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, nil)
++	if !c.cacher.Ready() {
++		return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject)
++	}
++	if delegator.ShouldDelegateGet(storage.GetOptions{}).ShouldDelegate {
++		// Ignore the suggestion and try to pass down the current version of the object
++		// read from cache.
++		if obj, exists, _, err := c.cacher.get(ctx, key, "0"); err != nil {
++			klog.Errorf("GetByKey returned error: %v", err)
++		} else if exists && preconditions.Check(key, obj) == nil {
++			// DeepCopy the object since we modify resource version when serializing the
++			// current object.
++			return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, obj.DeepCopyObject())
++		}
++		// If we couldn't get the object, fallback to no-suggestion.
++		return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, nil)
++	}
++
++	key, err := c.cacher.prepareKey(key, false)
++	if err != nil {
++		return err
++	}
++	fresh := false
++	currObj, exists, readRV, err := c.cacher.get(ctx, key, "0")
++	for {
++		var cachedRV uint64
++		var hasCachedRV bool
++		if err == nil {
++			if !exists {
++				if !ignoreNotFound {
++					err = storage.NewKeyNotFoundError(key, int64(readRV))
++				} else {
++					currObj = c.cacher.newFunc()
++				}
++			}
++			if err == nil {
++				if rv, rvErr := c.cacher.versioner.ObjectResourceVersion(currObj); rvErr == nil {
++					cachedRV = rv
++					hasCachedRV = true
++				}
++				var objToPass runtime.Object
++				if exists {
++					objToPass = currObj.DeepCopyObject()
++				} else {
++					objToPass = currObj
++				}
++				err = c.storage.Update(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, objToPass)
++				if err == nil {
++					if fresh {
++						return nil
++					}
++					destRV, destErr := c.cacher.versioner.ObjectResourceVersion(destination)
++					if hasCachedRV && destErr == nil && cachedRV != destRV {
++						return nil
++					}
++				}
++			}
++		}
++		if rv, ok := storage.ResourceVersion(err); ok && storage.IsConflict(err) {
++			klog.V(4).Infof("GuaranteedUpdate of %s conflicted, waiting for watch cache to reach revision %s", key, rv)
++			if currObj, exists, readRV, err = c.cacher.get(ctx, key, rv); err != nil {
++				if storage.IsTooLargeResourceVersion(err) {
++					return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, nil)
++				}
++				return err
++			}
++			fresh = true
++			continue
++		}
++		if !fresh {
++			fresh = true
++			var getErr error
++			currObj, exists, readRV, getErr = c.cacher.get(ctx, key, "")
++			if storage.IsTooLargeResourceVersion(getErr) {
++				return c.storage.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, nil)
++			}
++			if getErr == nil && hasCachedRV {
++				if !exists && ignoreNotFound && cachedRV == 0 {
++					return err
++				}
++				if exists {
++					if freshRV, rvErr := c.cacher.versioner.ObjectResourceVersion(currObj); rvErr == nil && freshRV == cachedRV {
++						return err
++					}
++				}
++			}
++			err = getErr
++			continue
++		}
++		return err
++	}
+ }
+ 
+ func (c *CacheDelegator) Stats(ctx context.Context) (storage.Stats, error) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator/interface.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator/interface.go
+index 2fefb46b9b244..0b3cacc3acc34 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator/interface.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator/interface.go
+@@ -18,10 +18,23 @@ package delegator
+ 
+ import (
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	etcdfeature "k8s.io/apiserver/pkg/storage/feature"
++	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ )
+ 
++func ShouldDelegateGet(opts storage.GetOptions) Result {
++	// Consistent Read
++	if opts.ResourceVersion == "" {
++		return Result{
++			ShouldDelegate: !utilfeature.DefaultFeatureGate.Enabled(features.ConsistentGetFromCache) || !ConsistentReadSupported(),
++			ConsistentRead: true,
++		}
++	}
++	return Result{ShouldDelegate: false}
++}
++
+ func ShouldDelegateListMeta(opts *metav1.ListOptions, cache Helper) (Result, error) {
+ 	return ShouldDelegateList(
+ 		storage.ListOptions{
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
+index ae3cda350b818..80ab83306121f 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher.go
+@@ -109,12 +109,13 @@ func (lw *listerWatcher) Watch(options metav1.ListOptions) (watch.Interface, err
+ 	pred := storage.Everything
+ 	pred.AllowWatchBookmarks = options.AllowWatchBookmarks
+ 	opts := storage.ListOptions{
+-		ResourceVersion:   options.ResourceVersion,
+-		Predicate:         pred,
+-		Recursive:         true,
+-		ProgressNotify:    true,
+-		SendInitialEvents: options.SendInitialEvents,
+-		RecordTimestamps:  true,
++		ResourceVersion:    options.ResourceVersion,
++		Predicate:          pred,
++		Recursive:          true,
++		ProgressNotify:     true,
++		SendInitialEvents:  options.SendInitialEvents,
++		RecordTimestamps:   true,
++		WatchWithoutPrevKV: utilfeature.DefaultFeatureGate.Enabled(features.WatchFromStorageWithoutPrevKV),
+ 	}
+ 	ctx := context.Background()
+ 	if lw.contextMetadata != nil {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
+index 1ec786e7c803d..fb0d2d58210be 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/lister_watcher_test.go
+@@ -20,6 +20,8 @@ import (
+ 	"context"
+ 	"testing"
+ 
++	"github.com/stretchr/testify/require"
++
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/watch"
+@@ -36,6 +38,47 @@ import (
+ 	cachertesting "k8s.io/apiserver/pkg/storage/cacher/testing"
+ )
+ 
++func TestListerWatcherWatchOptions(t *testing.T) {
++	for _, tc := range []struct {
++		name               string
++		options            metav1.ListOptions
++		watchWithoutPrevKV bool
++		expectedOptions    storage.ListOptions
++	}{
++		{
++			name:            "resource version, without previous values disabled",
++			options:         metav1.ListOptions{ResourceVersion: "100"},
++			expectedOptions: storage.ListOptions{ResourceVersion: "100"},
++		},
++		{
++			name:               "without previous values enabled",
++			options:            metav1.ListOptions{ResourceVersion: "100"},
++			watchWithoutPrevKV: true,
++			expectedOptions:    storage.ListOptions{ResourceVersion: "100", WatchWithoutPrevKV: true},
++		},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.WatchFromStorageWithoutPrevKV, tc.watchWithoutPrevKV)
++			var capturedOpts storage.ListOptions
++			backingStorage := &cachertesting.MockStorage{WatchFn: func(_ context.Context, _ string, opts storage.ListOptions) (watch.Interface, error) {
++				capturedOpts = opts
++				return watch.NewEmptyWatch(), nil
++			}}
++			lw := NewListerWatcher(backingStorage, "/pods/", newPodList, nil)
++			w, err := cache.ToListerWatcherWithContext(lw).WatchWithContext(context.Background(), tc.options)
++			require.NoError(t, err)
++			defer w.Stop()
++			expectedOpts := tc.expectedOptions
++			expectedOpts.Predicate.Label = storage.Everything.Label
++			expectedOpts.Predicate.Field = storage.Everything.Field
++			expectedOpts.Recursive = true
++			expectedOpts.ProgressNotify = true
++			expectedOpts.RecordTimestamps = true
++			require.Equal(t, expectedOpts, capturedOpts)
++		})
++	}
++}
++
+ func TestDoesClientSupportWatchListSemanticsForKubeClient(t *testing.T) {
+ 	target1 := &cachertesting.MockStorage{}
+ 	if !watchlist.DoesClientNotSupportWatchListSemantics(target1) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/testing/mock.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/testing/mock.go
+index b4cdaf5d7128a..347db232875af 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/testing/mock.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/testing/mock.go
+@@ -33,11 +33,13 @@ type MockStorage struct {
+ 	sync.RWMutex
+ 	GetListErr         error
+ 	WatchErr           error
++	GetFn              func(_ context.Context, _ string, _ storage.GetOptions, objPtr runtime.Object) error
+ 	GetListFn          func(_ context.Context, _ string, _ storage.ListOptions, listObj runtime.Object) error
+ 	GetRVFn            func(_ context.Context) (uint64, error)
+ 	WatchFn            func(_ context.Context, _ string, _ storage.ListOptions) (watch.Interface, error)
+ 	DeleteFn           func(_ context.Context, _ string, _ runtime.Object, _ *storage.Preconditions, _ storage.ValidateObjectFunc, _ runtime.Object, _ storage.DeleteOptions) error
+ 	GuaranteedUpdateFn func(_ context.Context, _ string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, _ runtime.Object) error
++	UpdateFn           func(_ context.Context, _ string, _ runtime.Object, _ bool, _ *storage.Preconditions, _ storage.UpdateFunc, _ runtime.Object) error
+ 
+ 	// use GetRequestWatchProgressCounter when reading
+ 	// the value of the counter
+@@ -102,7 +104,10 @@ func (d *MockStorage) Watch(ctx context.Context, key string, opts storage.ListOp
+ 
+ 	return NewMockWatch(), d.WatchErr
+ }
+-func (d *MockStorage) Get(_ context.Context, _ string, _ storage.GetOptions, _ runtime.Object) error {
++func (d *MockStorage) Get(ctx context.Context, key string, opts storage.GetOptions, objPtr runtime.Object) error {
++	if d.GetFn != nil {
++		return d.GetFn(ctx, key, opts, objPtr)
++	}
+ 	d.RLock()
+ 	defer d.RUnlock()
+ 	return d.GetListErr
+@@ -123,6 +128,12 @@ func (d *MockStorage) GuaranteedUpdate(ctx context.Context, key string, destinat
+ 	}
+ 	return fmt.Errorf("unimplemented")
+ }
++func (d *MockStorage) Update(ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	if d.UpdateFn != nil {
++		return d.UpdateFn(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject)
++	}
++	return fmt.Errorf("unimplemented")
++}
+ func (d *MockStorage) Stats(_ context.Context) (storage.Stats, error) {
+ 	return storage.Stats{}, fmt.Errorf("unimplemented")
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+index db52a22142ecc..526a945e17b4f 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+@@ -17,9 +17,11 @@ limitations under the License.
+ package cacher
+ 
+ import (
++	"container/heap"
+ 	"context"
+ 	"fmt"
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"go.opentelemetry.io/otel/attribute"
+@@ -74,6 +76,103 @@ type watchCacheEvent struct {
+ 	timeline metrics.DispatchTimeline
+ }
+ 
++type waitEntry struct {
++	rv      uint64
++	ch      chan struct{}
++	waiters int
++	index   int
++}
++
++type waitHeap []*waitEntry
++
++func (h waitHeap) Len() int           { return len(h) }
++func (h waitHeap) Less(i, j int) bool { return h[i].rv < h[j].rv }
++func (h waitHeap) Swap(i, j int) {
++	h[i], h[j] = h[j], h[i]
++	h[i].index = i
++	h[j].index = j
++}
++func (h *waitHeap) Push(x any) {
++	e := x.(*waitEntry)
++	e.index = len(*h)
++	*h = append(*h, e)
++}
++func (h *waitHeap) Pop() any {
++	old := *h
++	n := len(old)
++	e := old[n-1]
++	old[n-1] = nil
++	e.index = -1
++	*h = old[:n-1]
++	return e
++}
++
++// rvWaiter tracks callers waiting for the watch cache to reach at least a
++// target resourceVersion and wakes only those satisfied by each update.
++type rvWaiter struct {
++	currentRV atomic.Uint64
++
++	mu   sync.Mutex
++	heap waitHeap
++	byRV map[uint64]*waitEntry
++}
++
++func newRVWaiter() *rvWaiter {
++	return &rvWaiter{
++		byRV: make(map[uint64]*waitEntry),
++	}
++}
++
++func (w *rvWaiter) notify(rv uint64) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++
++	w.currentRV.Store(rv)
++	for len(w.heap) > 0 && w.heap[0].rv <= rv {
++		entry := heap.Pop(&w.heap).(*waitEntry)
++		delete(w.byRV, entry.rv)
++		close(entry.ch)
++	}
++}
++
++func (w *rvWaiter) register(targetRV uint64) <-chan struct{} {
++	if targetRV == 0 || targetRV <= w.currentRV.Load() {
++		return nil
++	}
++	w.mu.Lock()
++	defer w.mu.Unlock()
++
++	if targetRV <= w.currentRV.Load() {
++		return nil
++	}
++	entry, ok := w.byRV[targetRV]
++	if !ok {
++		entry = &waitEntry{
++			rv: targetRV,
++			ch: make(chan struct{}),
++		}
++		w.byRV[targetRV] = entry
++		heap.Push(&w.heap, entry)
++	}
++	entry.waiters++
++	return entry.ch
++}
++
++func (w *rvWaiter) unregister(targetRV uint64) {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++
++	entry, ok := w.byRV[targetRV]
++	if !ok {
++		return
++	}
++	entry.waiters--
++	if entry.waiters == 0 {
++		heap.Remove(&w.heap, entry.index)
++		delete(w.byRV, targetRV)
++	}
++}
++
+ // watchCache implements a Store interface.
+ // However, it depends on the elements implementing runtime.Object interface.
+ //
+@@ -82,9 +181,7 @@ type watchCacheEvent struct {
+ type watchCache struct {
+ 	sync.RWMutex
+ 
+-	// Condition on which lists are waiting for the fresh enough
+-	// resource version.
+-	cond *sync.Cond
++	waiter *rvWaiter
+ 
+ 	// ResourceVersion up to which the watchCache is propagated.
+ 	resourceVersion uint64
+@@ -152,12 +249,12 @@ func newWatchCache(
+ 	}
+ 
+ 	wc := &watchCache{
++		waiter:          newRVWaiter(),
+ 		resourceVersion: 0,
+ 		config:          config,
+ 		history:         newWatchCacheHistory(config, eventFreshDuration),
+ 		storage:         store.NewWatchCacheStorage(indexers),
+ 	}
+-	wc.cond = sync.NewCond(wc.RLocker())
+ 	wc.config.indexValidator = wc.history.isIndexValidLocked
+ 
+ 	return wc
+@@ -258,7 +355,7 @@ func (w *watchCache) processEvent(event watch.Event, resourceVersion uint64) err
+ 
+ 		w.history.updateCache(wcEvent)
+ 		w.resourceVersion = resourceVersion
+-		defer w.cond.Broadcast()
++		defer w.waiter.notify(resourceVersion)
+ 
+ 		if w.history.isCacheFullLocked() {
+ 			oldestRV := w.history.OldestResourceVersionLocked()
+@@ -292,11 +389,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
+ 	// to that resourceVersion. Skipping those no-op updates avoids taking the
+ 	// write lock, waking up all waiting readers and dispatching a bookmark that
+ 	// carries no new information.
+-	if func() bool {
+-		w.RLock()
+-		defer w.RUnlock()
+-		return w.resourceVersion == rv
+-	}() {
++	if w.waiter.currentRV.Load() == rv {
+ 		return
+ 	}
+ 
+@@ -305,7 +398,7 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
+ 		defer w.Unlock()
+ 		w.storage.UpdateResourceVersion(rv)
+ 		w.resourceVersion = rv
+-		w.cond.Broadcast()
++		w.waiter.notify(rv)
+ 	}()
+ 
+ 	// Avoid calling event handler under lock.
+@@ -322,49 +415,34 @@ func (w *watchCache) UpdateResourceVersion(resourceVersion string) {
+ 	metrics.RecordResourceVersion(w.config.groupResource, rv)
+ }
+ 
+-// waitUntilFreshLocked waits until cache is at least as fresh as given resourceVersion.
+-func (w *watchCache) waitUntilFreshLocked(ctx context.Context, resourceVersion uint64) error {
+-	if resourceVersion == 0 || resourceVersion <= w.resourceVersion {
++// waitUntilFresh waits until cache is at least as fresh as given resourceVersion.
++func (w *watchCache) waitUntilFresh(ctx context.Context, resourceVersion uint64) error {
++	ch := w.waiter.register(resourceVersion)
++	if ch == nil {
+ 		return nil
+ 	}
+ 	w.config.waitingUntilFresh.Add()
+ 	defer w.config.waitingUntilFresh.Remove()
+ 	startTime := w.config.clock.Now()
+ 	defer func() {
+-		if resourceVersion > 0 {
+-			metrics.WatchCacheReadWait.WithContext(ctx).WithLabelValues(w.config.groupResource.Group, w.config.groupResource.Resource).Observe(w.config.clock.Since(startTime).Seconds())
+-		}
++		metrics.WatchCacheReadWait.WithContext(ctx).WithLabelValues(w.config.groupResource.Group, w.config.groupResource.Resource).Observe(w.config.clock.Since(startTime).Seconds())
+ 	}()
+ 
+-	// In case resourceVersion is 0, we accept arbitrarily stale result.
+-	// As a result, the condition in the below for loop will never be
+-	// satisfied (w.resourceVersion is never negative), this call will
+-	// never hit the w.cond.Wait().
+-	// As a result - we can optimize the code by not firing the wakeup
+-	// function (and avoid starting a gorotuine), especially given that
+-	// resourceVersion=0 is the most common case.
+-	if resourceVersion > 0 {
+-		go func() {
+-			// Wake us up when the time limit has expired.  The docs
+-			// promise that time.After (well, NewTimer, which it calls)
+-			// will wait *at least* the duration given. Since this go
+-			// routine starts sometime after we record the start time, and
+-			// it will wake up the loop below sometime after the broadcast,
+-			// we don't need to worry about waking it up before the time
+-			// has expired accidentally.
+-			<-w.config.clock.After(blockTimeout)
+-			w.cond.Broadcast()
+-		}()
+-	}
+-
+-	for w.resourceVersion < resourceVersion {
+-		if w.config.clock.Since(startTime) >= blockTimeout {
+-			// Request that the client retry after 'resourceVersionTooHighRetrySeconds' seconds.
+-			return storage.NewTooLargeResourceVersionError(resourceVersion, w.resourceVersion, resourceVersionTooHighRetrySeconds)
+-		}
+-		w.cond.Wait()
++	timer := w.config.clock.NewTimer(blockTimeout)
++	defer timer.Stop()
++
++	select {
++	case <-ch:
++		return nil
++	case <-timer.C():
++		w.waiter.unregister(resourceVersion)
++		// Request that the client retry after 'resourceVersionTooHighRetrySeconds' seconds.
++		return storage.NewTooLargeResourceVersionError(resourceVersion, w.waiter.currentRV.Load(), resourceVersionTooHighRetrySeconds)
++	case <-ctx.Done():
++		w.waiter.unregister(resourceVersion)
++		// Request that the client retry after 'resourceVersionTooHighRetrySeconds' seconds.
++		return storage.NewTooLargeResourceVersionError(resourceVersion, w.waiter.currentRV.Load(), resourceVersionTooHighRetrySeconds)
+ 	}
+-	return nil
+ }
+ 
+ func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
+@@ -464,15 +542,16 @@ func (w *watchCache) waitAndListExactRV(ctx context.Context, key, continueKey st
+ 
+ func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersion uint64) (store.Snapshot, error) {
+ 	span := tracing.SpanFromContext(ctx)
+-	w.RLock()
+-	span.AddEvent("watchCache locked acquired")
+-	defer w.RUnlock()
+-	err := w.waitUntilFreshLocked(ctx, resourceVersion)
++	err := w.waitUntilFresh(ctx, resourceVersion)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	span.AddEvent("watchCache fresh enough")
+ 
++	w.RLock()
++	span.AddEvent("watchCache locked acquired")
++	defer w.RUnlock()
++
+ 	store, err := w.storage.GetExactSnapshotLocked(resourceVersion)
+ 	if err != nil {
+ 		span.AddEvent("GetExactSnapshotLocked failed", attribute.String("error", err.Error()))
+@@ -503,14 +582,19 @@ func (w *watchCache) waitAndListLatestRV(ctx context.Context, minResourceVersion
+ 
+ func (w *watchCache) waitAndGetLatestSnapshot(ctx context.Context, minResourceVersion uint64, matchValues []storage.MatchValue) (snap store.Snapshot, resourceVersion uint64, index string, err error) {
+ 	span := tracing.SpanFromContext(ctx)
+-	w.RLock()
+-	span.AddEvent("watchCache locked acquired")
+-	defer w.RUnlock()
+-	err = w.waitUntilFreshLocked(ctx, minResourceVersion)
++	err = w.waitUntilFresh(ctx, minResourceVersion)
+ 	if err != nil {
+ 		return nil, 0, "", err
+ 	}
+ 	span.AddEvent("watchCache fresh enough")
++	if len(matchValues) == 0 {
++		snap = w.storage.LatestSnapshot()
++		span.AddEvent("LatestSnapshot success")
++		return snap, snap.ResourceVersion(), "", nil
++	}
++	w.RLock()
++	span.AddEvent("watchCache locked acquired")
++	defer w.RUnlock()
+ 	snap, index = w.getLatestSnapshotLocked(ctx, matchValues)
+ 	return snap, w.resourceVersion, index, nil
+ }
+@@ -547,9 +631,7 @@ func (w *watchCache) checkSnapshotResourceVersion(snap store.Snapshot, expectedR
+ }
+ 
+ func (w *watchCache) notFresh(resourceVersion uint64) bool {
+-	w.RLock()
+-	defer w.RUnlock()
+-	return resourceVersion > w.resourceVersion
++	return resourceVersion > w.waiter.currentRV.Load()
+ }
+ 
+ // WaitUntilFreshAndGet returns a pointers to <storeElement> object.
+@@ -634,7 +716,7 @@ func (w *watchCache) Replace(objs []interface{}, resourceVersion string) error {
+ 	if w.onReplace != nil {
+ 		w.onReplace()
+ 	}
+-	w.cond.Broadcast()
++	w.waiter.notify(version)
+ 
+ 	metrics.RecordResourceVersion(w.config.groupResource, version)
+ 	klog.V(3).Infof("Replaced watchCache (rev: %v) ", resourceVersion)
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+index da6cd9339ce67..53bfd9798554e 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+@@ -586,28 +586,35 @@ func TestWaitUntilFreshAndListFromCache(t *testing.T) {
+ 
+ func TestWaitUntilFreshAndGet(t *testing.T) {
+ 	ctx := context.Background()
+-	store := newTestWatchCache(3, DefaultEventFreshDuration, &cache.Indexers{})
+-	defer store.Stop()
++	for _, rv := range []string{"", "5"} {
++		t.Run(fmt.Sprintf("resourceVersion=%q", rv), func(t *testing.T) {
++			store := newTestWatchCache(3, DefaultEventFreshDuration, &cache.Indexers{})
++			defer store.Stop()
++			store.config.getCurrentRV = func(context.Context) (uint64, error) {
++				return 5, nil
++			}
+ 
+-	// In background, update the store.
+-	go func() {
+-		store.Add(makeTestPod("foo", 2))
+-		store.Add(makeTestPod("bar", 5))
+-	}()
++			// In background, update the store.
++			go func() {
++				store.Add(makeTestPod("foo", 2))
++				store.Add(makeTestPod("bar", 5))
++			}()
+ 
+-	obj, exists, resourceVersion, err := store.WaitUntilFreshAndGet(ctx, "5", "/prefix/ns/bar")
+-	if err != nil {
+-		t.Fatalf("unexpected error: %v", err)
+-	}
+-	if resourceVersion != 5 {
+-		t.Errorf("unexpected resourceVersion: %v, expected: 5", resourceVersion)
+-	}
+-	if !exists {
+-		t.Fatalf("no results returned: %#v", obj)
+-	}
+-	expected := makeTestStoreElement(makeTestPod("bar", 5))
+-	if !apiequality.Semantic.DeepEqual(expected, obj) {
+-		t.Errorf("expected %v, got %v", expected, obj)
++			obj, exists, resourceVersion, err := store.WaitUntilFreshAndGet(ctx, rv, "/prefix/ns/bar")
++			if err != nil {
++				t.Fatalf("unexpected error: %v", err)
++			}
++			if resourceVersion != 5 {
++				t.Errorf("unexpected resourceVersion: %v, expected: 5", resourceVersion)
++			}
++			if !exists {
++				t.Fatalf("no results returned: %#v", obj)
++			}
++			expected := makeTestStoreElement(makeTestPod("bar", 5))
++			if !apiequality.Semantic.DeepEqual(expected, obj) {
++				t.Errorf("expected %v, got %v", expected, obj)
++			}
++		})
+ 	}
+ }
+ 
+@@ -1432,3 +1439,101 @@ func getMaxItemRV(t *testing.T, versioner storage.Versioner, items []interface{}
+ 	}
+ 	return maxRV
+ }
++
++func TestWaitUntilFreshConcurrentWaitersAndCleanup(t *testing.T) {
++	s := newTestWatchCache(100, DefaultEventFreshDuration, &cache.Indexers{})
++	defer s.Stop()
++	require.NoError(t, s.Add(makeTestPod("pod", 1)))
++
++	// 1. Cancelled context cleans up waiter entry when last waiter leaves.
++	cancelCtx, cancel := context.WithCancel(context.Background())
++	cancelDone := make(chan error, 1)
++	go func() {
++		cancelDone <- s.waitUntilFresh(cancelCtx, 999)
++	}()
++	require.Eventually(t, func() bool {
++		s.waiter.mu.Lock()
++		defer s.waiter.mu.Unlock()
++		return len(s.waiter.byRV) == 1 && len(s.waiter.heap) == 1
++	}, time.Second, time.Millisecond)
++	cancel()
++	require.True(t, storage.IsTooLargeResourceVersion(<-cancelDone))
++	s.waiter.mu.Lock()
++	require.Empty(t, s.waiter.byRV)
++	require.Empty(t, s.waiter.heap)
++	s.waiter.mu.Unlock()
++
++	// 2. Multiple waiters across distinct and shared RVs wake in order.
++	const numRVs = 50
++	const waitersPerRV = 4
++	var wg wait.Group
++	for rv := uint64(2); rv <= numRVs+1; rv++ {
++		for range waitersPerRV {
++			targetRV := rv
++			wg.Start(func() {
++				_, exists, gotRV, err := s.WaitUntilFreshAndGet(context.Background(), strconv.FormatUint(targetRV, 10), "/prefix/ns/pod")
++				require.NoError(t, err)
++				require.True(t, exists)
++				require.GreaterOrEqual(t, gotRV, targetRV)
++			})
++		}
++	}
++
++	require.Eventually(t, func() bool {
++		s.waiter.mu.Lock()
++		defer s.waiter.mu.Unlock()
++		return len(s.waiter.byRV) == numRVs
++	}, 2*time.Second, time.Millisecond)
++
++	for rv := uint64(2); rv <= numRVs+1; rv++ {
++		require.NoError(t, s.Update(makeTestPod("pod", rv)))
++	}
++	wg.Wait()
++
++	s.waiter.mu.Lock()
++	require.Empty(t, s.waiter.byRV)
++	require.Empty(t, s.waiter.heap)
++	s.waiter.mu.Unlock()
++}
++
++func BenchmarkWaitUntilFreshManyWaiters(b *testing.B) {
++	const numWaiters = 350
++	const lookahead = uint64(numWaiters)
++
++	s := newTestWatchCache(4096, DefaultEventFreshDuration, &cache.Indexers{})
++	defer s.Stop()
++	s.config.clock = clock.RealClock{}
++	require.NoError(b, s.Add(makeTestPod("pod", 1)))
++
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++
++	var wg wait.Group
++	for i := range numWaiters {
++		offset := uint64(i + 1)
++		wg.Start(func() {
++			for {
++				cur := s.waiter.currentRV.Load()
++				if err := s.waitUntilFresh(ctx, cur+offset); err != nil {
++					return
++				}
++			}
++		})
++	}
++
++	b.ResetTimer()
++	b.ReportAllocs()
++	for i := range b.N {
++		rv := uint64(i + 2)
++		if err := s.Update(makeTestPod("pod", rv)); err != nil {
++			b.Fatal(err)
++		}
++	}
++	b.StopTimer()
++	cancel()
++	for i := range lookahead + 1 {
++		s.waiter.notify(uint64(b.N) + 2 + i)
++	}
++	wg.Wait()
++}
++
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go
+index faa6d046dc47d..554d45c0aeaa9 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event.go
+@@ -63,8 +63,8 @@ func parseKV(kv *mvccpb.KeyValue) *event {
+ 	}
+ }
+ 
+-func parseEvent(e *clientv3.Event) (*event, error) {
+-	if !e.IsCreate() && e.PrevKv == nil {
++func parseEvent(e *clientv3.Event, expectPrevKV bool) (*event, error) {
++	if expectPrevKV && !e.IsCreate() && e.PrevKv == nil {
+ 		// If the previous value is nil, error. One example of how this is possible is if the previous value has been compacted already.
+ 		return nil, fmt.Errorf("etcd event received with PrevKv=nil (key=%q, modRevision=%d, type=%s)", string(e.Kv.Key), e.Kv.ModRevision, e.Type.String())
+ 
+@@ -77,7 +77,7 @@ func parseEvent(e *clientv3.Event) (*event, error) {
+ 		isCreated:  e.IsCreate(),
+ 		recordTime: time.Now(),
+ 	}
+-	if e.PrevKv != nil {
++	if expectPrevKV && e.PrevKv != nil {
+ 		ret.prevValue = e.PrevKv.Value
+ 	}
+ 	return ret, nil
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event_test.go
+index 5fff98cd348c3..45180abf508ec 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/event_test.go
+@@ -31,6 +31,7 @@ func TestParseEvent(t *testing.T) {
+ 		name          string
+ 		etcdEvent     *clientv3.Event
+ 		expectedEvent *event
++		expectPrevKV  bool
+ 		expectedErr   string
+ 	}{
+ 		{
+@@ -54,12 +55,13 @@ func TestParseEvent(t *testing.T) {
+ 				isDeleted: false,
+ 				isCreated: true,
+ 			},
+-			expectedErr: "",
++			expectPrevKV: true,
++			expectedErr:  "",
+ 		},
+ 		{
+ 			name: "unsuccessful delete",
+ 			etcdEvent: &clientv3.Event{
+-				Type:   mvccpb.DELETE,
++				Type:   mvccpb.Event_DELETE,
+ 				PrevKv: nil,
+ 				Kv: &mvccpb.KeyValue{
+ 					Key:            []byte("key"),
+@@ -68,12 +70,36 @@ func TestParseEvent(t *testing.T) {
+ 					Value:          nil,
+ 				},
+ 			},
+-			expectedErr: "etcd event received with PrevKv=nil",
++			expectPrevKV: true,
++			expectedErr:  "etcd event received with PrevKv=nil",
++		},
++		{
++			name: "delete without previous value",
++			etcdEvent: &clientv3.Event{
++				Type:   mvccpb.Event_DELETE,
++				PrevKv: nil,
++				Kv: &mvccpb.KeyValue{
++					Key:            []byte("key"),
++					CreateRevision: 1,
++					ModRevision:    2,
++					Value:          nil,
++				},
++			},
++			expectPrevKV: false,
++			expectedEvent: &event{
++				key:       "key",
++				value:     nil,
++				prevValue: nil,
++				rev:       2,
++				isDeleted: true,
++				isCreated: false,
++			},
++			expectedErr: "",
+ 		},
+ 		{
+ 			name: "successful delete",
+ 			etcdEvent: &clientv3.Event{
+-				Type: mvccpb.DELETE,
++				Type: mvccpb.Event_DELETE,
+ 				PrevKv: &mvccpb.KeyValue{
+ 					Key:            []byte("key"),
+ 					CreateRevision: 1,
+@@ -95,11 +121,34 @@ func TestParseEvent(t *testing.T) {
+ 				isDeleted: true,
+ 				isCreated: false,
+ 			},
+-			expectedErr: "",
++			expectPrevKV: true,
++			expectedErr:  "",
++		},
++		{
++			name: "update ignoring previous value",
++			etcdEvent: &clientv3.Event{
++				Type:   mvccpb.Event_PUT,
++				Kv:     &mvccpb.KeyValue{Key: []byte("key"), CreateRevision: 1, ModRevision: 2, Value: []byte("current")},
++				PrevKv: &mvccpb.KeyValue{Value: []byte("previous")},
++			},
++			expectedEvent: &event{
++				key: "key", value: []byte("current"), rev: 2,
++			},
++		},
++		{
++			name: "delete ignoring previous value",
++			etcdEvent: &clientv3.Event{
++				Type:   mvccpb.Event_DELETE,
++				Kv:     &mvccpb.KeyValue{Key: []byte("key"), CreateRevision: 1, ModRevision: 2},
++				PrevKv: &mvccpb.KeyValue{Value: []byte("previous")},
++			},
++			expectedEvent: &event{
++				key: "key", rev: 2, isDeleted: true,
++			},
+ 		},
+ 	} {
+ 		t.Run(tc.name, func(t *testing.T) {
+-			actualEvent, err := parseEvent(tc.etcdEvent)
++			actualEvent, err := parseEvent(tc.etcdEvent, tc.expectPrevKV)
+ 			if tc.expectedErr != "" {
+ 				require.Error(t, err)
+ 				assert.ErrorContains(t, err, tc.expectedErr)
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+index cd6cf0dba8d50..ea2803e2f162a 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store.go
+@@ -382,12 +382,15 @@ func (s *store) Delete(
+ 	if utilfeature.DefaultFeatureGate.Enabled(features.AllowUnsafeMalformedObjectDeletion) {
+ 		expectTransformOrDecodeError = opts.ExpectTransformOrDecodeError
+ 	}
+-	return s.conditionalDelete(ctx, preparedKey, out, v, preconditions, validateDeletion, cachedExistingObject, expectTransformOrDecodeError)
++	return s.conditionalDelete(ctx, preparedKey, out, v, preconditions, validateDeletion, cachedExistingObject, expectTransformOrDecodeError, !opts.FailOnConflict)
+ }
+ 
+ func (s *store) conditionalDelete(
+ 	ctx context.Context, key string, out runtime.Object, v reflect.Value, preconditions *storage.Preconditions,
+-	validateDeletion storage.ValidateObjectFunc, cachedExistingObject runtime.Object, expectTransformOrDecodeError bool) error {
++	validateDeletion storage.ValidateObjectFunc, cachedExistingObject runtime.Object, expectTransformOrDecodeError, guaranteed bool) error {
++	if !guaranteed && cachedExistingObject == nil {
++		return fmt.Errorf("cachedExistingObject must not be nil for non-guaranteed delete")
++	}
+ 	getCurrentState := s.getCurrentState(ctx, "deleteGet", key, v, false, expectTransformOrDecodeError)
+ 
+ 	var origState *objState
+@@ -395,6 +398,7 @@ func (s *store) conditionalDelete(
+ 	var origStateIsCurrent bool
+ 	if cachedExistingObject != nil && !expectTransformOrDecodeError {
+ 		origState, err = s.getStateFromObject(cachedExistingObject)
++		origStateIsCurrent = !guaranteed
+ 	} else {
+ 		origState, err = getCurrentState()
+ 		origStateIsCurrent = true
+@@ -459,13 +463,20 @@ func (s *store) conditionalDelete(
+ 
+ 		startTime := time.Now()
+ 		txnResp, err := s.client.Kubernetes.OptimisticDelete(ctx, key, origState.rev, kubernetes.DeleteOptions{
+-			GetOnFailure: true,
++			GetOnFailure: guaranteed,
+ 		})
+ 		metrics.RecordEtcdRequest("delete", s.groupResource, txnError(txnResp.Succeeded, err), startTime)
+ 		if err != nil {
+ 			return err
+ 		}
+ 		if !txnResp.Succeeded {
++			if !guaranteed {
++				rev := txnResp.Revision
++				if rev <= 0 {
++					rev = origState.rev
++				}
++				return storage.NewResourceVersionConflictsError(key, rev)
++			}
+ 			klog.V(4).Infof("deletion of %s failed because of a conflict, going to retry", key)
+ 			origState, err = s.getState(ctx, txnResp.KV, txnResp.Revision, key, v, false, expectTransformOrDecodeError)
+ 			if err != nil {
+@@ -490,11 +501,31 @@ func (s *store) conditionalDelete(
+ func (s *store) GuaranteedUpdate(
+ 	ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool,
+ 	preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	return s.update(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject, true)
++}
++
++// Update implements storage.Interface.Update.
++func (s *store) Update(
++	ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool,
++	preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	return s.update(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject, false)
++}
++
++func (s *store) update(
++	ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool,
++	preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object, guaranteed bool) error {
++	if !guaranteed && cachedExistingObject == nil {
++		return fmt.Errorf("cachedExistingObject must not be nil for non-guaranteed update")
++	}
+ 	preparedKey, err := s.prepareKey(key, false)
+ 	if err != nil {
+ 		return err
+ 	}
+-	ctx, span := tracing.Start(ctx, "GuaranteedUpdate etcd3",
++	spanName := "Update etcd3"
++	if guaranteed {
++		spanName = "GuaranteedUpdate etcd3"
++	}
++	ctx, span := tracing.Start(ctx, spanName,
+ 		attribute.String("audit-id", audit.GetAuditIDTruncated(ctx)),
+ 		attribute.String("key", key),
+ 		attribute.String("type", getTypeName(destination)),
+@@ -513,6 +544,7 @@ func (s *store) GuaranteedUpdate(
+ 	var origStateIsCurrent bool
+ 	if cachedExistingObject != nil {
+ 		origState, err = s.getStateFromObject(cachedExistingObject)
++		origStateIsCurrent = !guaranteed
+ 	} else {
+ 		origState, err = getCurrentState()
+ 		origStateIsCurrent = true
+@@ -621,7 +653,7 @@ func (s *store) GuaranteedUpdate(
+ 		startTime := time.Now()
+ 
+ 		txnResp, err := s.client.Kubernetes.OptimisticPut(ctx, preparedKey, newData, origState.rev, kubernetes.PutOptions{
+-			GetOnFailure: true,
++			GetOnFailure: guaranteed,
+ 			LeaseID:      lease,
+ 		})
+ 		metrics.RecordEtcdRequest("update", s.groupResource, txnError(txnResp.Succeeded, err), startTime)
+@@ -632,6 +664,13 @@ func (s *store) GuaranteedUpdate(
+ 		span.AddEvent("Txn call completed")
+ 		span.AddEvent("Transaction committed")
+ 		if !txnResp.Succeeded {
++			if !guaranteed {
++				rev := txnResp.Revision
++				if rev <= 0 {
++					rev = origState.rev
++				}
++				return storage.NewResourceVersionConflictsError(preparedKey, rev)
++			}
+ 			klog.V(4).Infof("GuaranteedUpdate of %s failed because of a conflict, going to retry", preparedKey)
+ 			origState, err = s.getState(ctx, txnResp.KV, txnResp.Revision, preparedKey, v, ignoreNotFound, false)
+ 			if err != nil {
+@@ -1269,15 +1308,17 @@ func (s *store) getStateFromObject(obj runtime.Object) (*objState, error) {
+ 
+ 	// Compute the serialized form - for that we need to temporarily clean
+ 	// its resource version field (those are not stored in etcd).
+-	if err := s.versioner.PrepareObjectForStorage(obj); err != nil {
+-		return nil, fmt.Errorf("PrepareObjectForStorage failed: %v", err)
+-	}
+-	state.data, err = runtime.Encode(s.codec, obj)
+-	if err != nil {
+-		return nil, err
+-	}
+-	if err := s.versioner.UpdateObject(state.obj, uint64(rv)); err != nil {
+-		klog.Errorf("failed to update object version: %v", err)
++	if rv > 0 {
++		if err := s.versioner.PrepareObjectForStorage(obj); err != nil {
++			return nil, fmt.Errorf("PrepareObjectForStorage failed: %v", err)
++		}
++		state.data, err = runtime.Encode(s.codec, obj)
++		if err != nil {
++			return nil, err
++		}
++		if err := s.versioner.UpdateObject(state.obj, uint64(rv)); err != nil {
++			klog.Errorf("failed to update object version: %v", err)
++		}
+ 	}
+ 	return state, nil
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+index aa2621d172836..692941425f917 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/store_test.go
+@@ -123,8 +123,8 @@ func TestCreateWithKeyExist(t *testing.T) {
+ }
+ 
+ func TestGet(t *testing.T) {
+-	ctx, store, _ := testSetup(t)
+-	storagetesting.RunTestGet(ctx, t, store)
++	ctx, store, client := testSetup(t)
++	storagetesting.RunTestGet(ctx, t, increaseRVFunc(client.Client), store)
+ }
+ 
+ func TestUnconditionalDelete(t *testing.T) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+index 19508be0e0953..abdbb258124fe 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher.go
+@@ -110,11 +110,12 @@ type storageKeyReverseFunc func(key storageKey) (name string, namespace string,
+ 
+ // watchChan implements watch.Interface.
+ type watchChan struct {
+-	watcher        *watcher
+-	key            string
+-	initialRev     int64
+-	recursive      bool
+-	progressNotify bool
++	watcher            *watcher
++	key                string
++	initialRev         int64
++	recursive          bool
++	progressNotify     bool
++	watchWithoutPrevKV bool
+ 	// recordTimestamps enables wrapping watch events with decode timestamps and
+ 	// etcd client-side watch response buffer logging.
+ 	recordTimestamps         bool
+@@ -143,11 +144,22 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	if opts.ProgressNotify && w.newFunc == nil {
+ 		return nil, apierrors.NewInternalError(errors.New("progressNotify for watch is unsupported by the etcd storage because no newFunc was provided"))
+ 	}
++	if opts.WatchWithoutPrevKV {
++		if !opts.Predicate.Empty() {
++			return nil, apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires an empty predicate"))
++		}
++		if w.newFunc == nil {
++			return nil, apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires a newFunc"))
++		}
++		if w.reverseKeyFunc == nil {
++			return nil, apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires a reverseKeyFunc"))
++		}
++	}
+ 	startWatchRV, err := w.getStartWatchResourceVersion(ctx, rev, opts)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	wc := w.createWatchChan(ctx, key, startWatchRV, opts.Recursive, opts.ProgressNotify, opts.RecordTimestamps, opts.Predicate)
++	wc := w.createWatchChan(ctx, key, startWatchRV, opts.Recursive, opts.ProgressNotify, opts.RecordTimestamps, opts.WatchWithoutPrevKV, opts.Predicate)
+ 	go wc.run(isInitialEventsEndBookmarkRequired(opts), areInitialEventsRequired(rev, opts))
+ 
+ 	// For etcd watch we don't have an easy way to answer whether the watch
+@@ -160,7 +172,7 @@ func (w *watcher) Watch(ctx context.Context, key string, rev int64, opts storage
+ 	return wc, nil
+ }
+ 
+-func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, recursive, progressNotify, recordTimestamps bool, pred storage.SelectionPredicate) *watchChan {
++func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, recursive, progressNotify, recordTimestamps, watchWithoutPrevKV bool, pred storage.SelectionPredicate) *watchChan {
+ 	wc := &watchChan{
+ 		watcher:                  w,
+ 		key:                      key,
+@@ -168,6 +180,7 @@ func (w *watcher) createWatchChan(ctx context.Context, key string, rev int64, re
+ 		recursive:                recursive,
+ 		progressNotify:           progressNotify,
+ 		recordTimestamps:         recordTimestamps,
++		watchWithoutPrevKV:       watchWithoutPrevKV,
+ 		internalPred:             pred,
+ 		incomingEventChan:        make(chan *event, incomingBufSize),
+ 		resultChan:               make(chan watch.Event, outgoingBufSize),
+@@ -478,7 +491,10 @@ func (wc *watchChan) startWatching(watchClosedCh chan struct{}, initialEventsEnd
+ 			return e
+ 		}())
+ 	}
+-	opts := []clientv3.OpOption{clientv3.WithRev(wc.initialRev + 1), clientv3.WithPrevKV()}
++	opts := []clientv3.OpOption{clientv3.WithRev(wc.initialRev + 1)}
++	if !wc.watchWithoutPrevKV {
++		opts = append(opts, clientv3.WithPrevKV())
++	}
+ 	if wc.recursive {
+ 		opts = append(opts, clientv3.WithPrefix())
+ 	}
+@@ -521,7 +537,7 @@ func (wc *watchChan) startWatching(watchClosedCh chan struct{}, initialEventsEnd
+ 				}
+ 			}
+ 			metrics.RecordEtcdEvent(wc.watcher.groupResource)
+-			parsedEvent, err := parseEvent(e)
++			parsedEvent, err := parseEvent(e, !wc.watchWithoutPrevKV)
+ 			if err != nil {
+ 				logWatchChannelErr(err)
+ 				// sendError doesn't guarantee that no more items will be put into resultChan.
+@@ -838,6 +854,25 @@ func (wc *watchChan) prepareObjs(e *event) (curObj runtime.Object, oldObj runtim
+ 		// progressNotify events doesn't contain neither current nor previous object version,
+ 		return nil, nil, nil
+ 	}
++	if e.isDeleted && wc.watchWithoutPrevKV {
++		// The watch cache already has the full object. Only its identity and the
++		// deletion revision are needed to remove it and publish the cached object.
++		name, namespace, err := wc.watcher.reverseKeyFunc(e.key)
++		if err != nil {
++			return nil, nil, fmt.Errorf("failed to reverse watch event key %q: %w", e.key, err)
++		}
++		oldObj = wc.watcher.newFunc()
++		accessor, err := meta.Accessor(oldObj)
++		if err != nil {
++			return nil, nil, err
++		}
++		accessor.SetName(name)
++		accessor.SetNamespace(namespace)
++		if err := wc.watcher.versioner.UpdateObject(oldObj, uint64(e.rev)); err != nil {
++			return nil, nil, err
++		}
++		return nil, oldObj, nil
++	}
+ 
+ 	if !e.isDeleted {
+ 		data, _, err := wc.watcher.transformer.TransformFromStorage(wc.ctx, e.value, authenticatedDataString(e.key))
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+index cb57e2e7c4970..59c78322391a1 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/etcd3/watcher_test.go
+@@ -56,8 +56,27 @@ import (
+ 
+ func TestWatch(t *testing.T) {
+ 	t.Run("Watch", func(t *testing.T) {
+-		ctx, store, _ := testSetup(t)
+-		storagetesting.RunTestWatch(ctx, t, store)
++		ctx, store, _ := testSetup(t, withReverseKeyFunc(storagetesting.PodReverseKeyFunc("/pods", true)))
++		storagetesting.RunTestWatch(ctx, t, store, false)
++	})
++	t.Run("WatchWithoutPrevKVRootPrefix", func(t *testing.T) {
++		ctx, store, client := testSetup(t, withPrefix("/"), withResourcePrefix("/pods"), withReverseKeyFunc(storagetesting.PodReverseKeyFunc("/pods", true)))
++		recorder := storagetesting.NewWatchRecorder(client.Watcher)
++		client.Watcher = recorder
++		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, store, "ns", true, recorder)
++	})
++	t.Run("WatchWithoutPrevKVClusterScoped", func(t *testing.T) {
++		ctx, store, client := testSetup(t, withPrefix("/custom/prefix"), withResourcePrefix("/pods"), withReverseKeyFunc(storagetesting.PodReverseKeyFunc("/pods", false)))
++		recorder := storagetesting.NewWatchRecorder(client.Watcher)
++		client.Watcher = recorder
++		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, store, "", true, recorder)
++	})
++	t.Run("WatchWithoutPrevKVReverseError", func(t *testing.T) {
++		wantErr := errors.New("invalid resource key")
++		ctx, store, _ := testSetup(t, withPrefix("/registry"), withReverseKeyFunc(func(string) (string, string, error) {
++			return "", "", wantErr
++		}))
++		storagetesting.RunTestWatchWithoutPrevKVReverseError(ctx, t, store, wantErr)
+ 	})
+ 	t.Run("ClusterScopedWatch", func(t *testing.T) {
+ 		ctx, store, _ := testSetup(t)
+@@ -97,7 +116,7 @@ func TestWatch(t *testing.T) {
+ 	})
+ 	t.Run("WatchDeleteEventObjectHaveLatestRV", func(t *testing.T) {
+ 		ctx, store, _ := testSetup(t)
+-		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, store)
++		storagetesting.RunTestWatchDeleteEventObjectHaveLatestRV(ctx, t, store, "test-ns", false, nil)
+ 	})
+ 	t.Run("WatchInitializationSignal", func(t *testing.T) {
+ 		ctx, store, _ := testSetup(t)
+@@ -180,6 +199,30 @@ func TestWatchErrorIncorrectConfiguration(t *testing.T) {
+ 			requestOpts: storage.ListOptions{ProgressNotify: true},
+ 			expectedErr: apierrors.NewInternalError(errors.New("progressNotify for watch is unsupported by the etcd storage because no newFunc was provided")),
+ 		},
++		{
++			name: "watch without previous values requires an object constructor",
++			setupFn: func(opts *setupOptions) {
++				opts.newFunc = nil
++				opts.reverseKeyFunc = storagetesting.PodReverseKeyFunc("/pods", true)
++			},
++			requestOpts: storage.ListOptions{WatchWithoutPrevKV: true, Predicate: storage.Everything},
++			expectedErr: apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires a newFunc")),
++		},
++		{
++			name:        "watch without previous values requires a reverse key function",
++			setupFn:     func(opts *setupOptions) { opts.reverseKeyFunc = nil },
++			requestOpts: storage.ListOptions{WatchWithoutPrevKV: true, Predicate: storage.Everything},
++			expectedErr: apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires a reverseKeyFunc")),
++		},
++		{
++			name: "watch without previous values requires both functions",
++			setupFn: func(opts *setupOptions) {
++				opts.newFunc = nil
++				opts.reverseKeyFunc = nil
++			},
++			requestOpts: storage.ListOptions{WatchWithoutPrevKV: true, Predicate: storage.Everything},
++			expectedErr: apierrors.NewInternalError(errors.New("watchWithoutPrevKV requires a newFunc")),
++		},
+ 	}
+ 	for _, scenario := range scenarios {
+ 		t.Run(scenario.name, func(t *testing.T) {
+@@ -200,6 +243,9 @@ func TestWatchErrorIncorrectConfiguration(t *testing.T) {
+ 			if err.Error() != scenario.expectedErr.Error() {
+ 				t.Fatalf("unexpected err = %v, expected = %v", err, scenario.expectedErr)
+ 			}
++			if !apierrors.IsInternalError(err) {
++				t.Fatalf("expected an internal error, got %v", err)
++			}
+ 		})
+ 	}
+ }
+@@ -321,6 +367,7 @@ func TestWatchChanSync(t *testing.T) {
+ 					true,
+ 					false,
+ 					false,
++					false,
+ 					storage.Everything)
+ 
+ 				sync := w.syncPaginated
+@@ -407,7 +454,7 @@ func TestWatchChanSyncStreamFallsBackToPaginated(t *testing.T) {
+ 	kvWrapper.streamKV = unimplementedRangeStreamKV()
+ 	store.client.KV = kvWrapper
+ 
+-	w := store.watcher.createWatchChan(origCtx, "/pods/", 0, true, false, false, storage.Everything)
++	w := store.watcher.createWatchChan(origCtx, "/pods/", 0, true, false, false, false, storage.Everything)
+ 
+ 	if err := w.sync(); err != nil {
+ 		t.Fatalf("sync failed: %v", err)
+@@ -436,7 +483,7 @@ func TestWatchChanSyncStreamFallsBackToPaginated(t *testing.T) {
+ 
+ func drainSync(t *testing.T, store *store, ctx context.Context, sync func(*watchChan) error) map[string]*event {
+ 	t.Helper()
+-	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, storage.Everything)
++	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, false, storage.Everything)
+ 	if err := sync(wc); err != nil {
+ 		t.Fatalf("sync failed: %v", err)
+ 	}
+@@ -472,7 +519,7 @@ func TestWatchChanSyncStreamCompactionError(t *testing.T) {
+ 	legacyregistry.Reset()
+ 	t.Cleanup(legacyregistry.Reset)
+ 
+-	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, storage.Everything)
++	wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, false, storage.Everything)
+ 	if err := wc.syncStreamRecursive(); !apierrors.IsResourceExpired(err) {
+ 		t.Fatalf("expected ResourceExpired from a compacted revision, got %T %v", err, err)
+ 	}
+@@ -499,7 +546,7 @@ func TestWatchChanSyncStreamMetrics(t *testing.T) {
+ 		legacyregistry.Reset()
+ 		t.Cleanup(legacyregistry.Reset)
+ 
+-		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, storage.Everything)
++		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, false, storage.Everything)
+ 		if err := wc.syncStreamRecursive(); err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -522,7 +569,7 @@ etcd_requests_total{group="",operation="listStream",resource="pods"} 1
+ 		legacyregistry.Reset()
+ 		t.Cleanup(legacyregistry.Reset)
+ 
+-		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, storage.Everything)
++		wc := store.watcher.createWatchChan(ctx, "/pods/", 0, true, false, false, false, storage.Everything)
+ 		err := wc.syncStreamRecursive()
+ 		if grpcstatus.Code(err) != grpccodes.Unimplemented {
+ 			t.Fatalf("expected Unimplemented error, got %v", err)
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/interfaces.go b/staging/src/k8s.io/apiserver/pkg/storage/interfaces.go
+index 4e42dd53062b4..e2998cd6bfc73 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/interfaces.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/interfaces.go
+@@ -251,6 +251,11 @@ type Interface interface {
+ 		ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool,
+ 		preconditions *Preconditions, tryUpdate UpdateFunc, cachedExistingObject runtime.Object) error
+ 
++	// Update updates key 'key' (of type 'destination') without retrying on storage transaction conflict.
++	Update(
++		ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool,
++		preconditions *Preconditions, tryUpdate UpdateFunc, cachedExistingObject runtime.Object) error
++
+ 	// Stats returns storage stats.
+ 	Stats(ctx context.Context) (Stats, error)
+ 
+@@ -338,6 +343,14 @@ type ListOptions struct {
+ 	// event containing a ResourceVersion after which the server
+ 	// continues streaming events.
+ 	SendInitialEvents *bool
++	// WatchWithoutPrevKV requests omission of previous values from etcd watch
++	// events. Deleted objects then contain only name, namespace, and the deletion
++	// resource version. It requires an object constructor and a reverse key
++	// function; etcd storage rejects the request if either is unavailable.
++	// This is intended for the watch cache, which retains the full previous object.
++	// It requires an empty predicate, is rejected by the cacher, and is ignored
++	// for non-watch requests.
++	WatchWithoutPrevKV bool
+ 	// RecordTimestamps requests that the storage layer wrap each emitted watch
+ 	// object in a WatchEventWithRecordTime carrying its decode timestamp, for dispatch
+ 	// latency telemetry. This is intended for internal clients only (the watch
+@@ -367,6 +380,10 @@ type DeleteOptions struct {
+ 	// enabled by the caller only to facilitate unsafe deletion of corrupt
+ 	// object which otherwise can not be deleted using the normal flow
+ 	ExpectTransformOrDecodeError bool
++
++	// FailOnConflict, if enabled, deletes the cachedExistingObject without
++	// retrying on storage transaction conflict.
++	FailOnConflict bool
+ }
+ 
+ func ValidateListOptions(keyPrefix string, versioner Versioner, opts ListOptions) (withRev int64, continueKey string, err error) {
+@@ -457,5 +474,6 @@ func PrepareKey(resourcePrefix, key string, recursive bool) (string, error) {
+ // cluster-scoped resources, namespace is empty and name is non-empty. An error
+ // is returned if the key cannot be parsed into a valid object identity.
+ // A nil ReverseKeyFunc indicates that identity cannot be derived from the
+-// key and callers must fall back to decoding the stored object.
++// key. Callers must decode the stored object or reject operations that require
++// key-derived identity.
+ type ReverseKeyFunc func(key string) (name string, namespace string, err error)
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/model.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/model.go
+index 7c24b810b210a..b0f499474513f 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/model.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/model.go
+@@ -119,11 +119,14 @@ func (s *Model) Step(input Request, output Response) (ok bool, next *Model, chan
+ 	expected, next, change := s.execute(input)
+ 	switch input.Op {
+ 	case OpGet:
+-		return s.validateGet(input.Get.Options, expected, output), s, nil
++		return s.validateGet(input.Key, input.Get.Options, expected, output), s, nil
+ 	case OpList:
+ 		return s.validateList(input.Key, input.List.Options, expected, output), s, nil
+ 	default:
+ 		if !reflect.DeepEqual(expected, output) {
++			if (input.Op == OpUpdate || input.Op == OpDelete) && storage.IsNotFound(expected.Err) && reflect.DeepEqual(Response{Err: storage.NewKeyNotFoundError(input.Key, int64(s.ResourceVersion))}, output) {
++				return true, next, change
++			}
+ 			return false, s, nil
+ 		}
+ 		return true, next, change
+@@ -158,7 +161,7 @@ func (s *Model) execute(input Request) (Response, *Model, *Change) {
+ 	}
+ }
+ 
+-func (s *Model) validateGet(opts storage.GetOptions, expected, output Response) bool {
++func (s *Model) validateGet(key string, opts storage.GetOptions, expected, output Response) bool {
+ 	if expected.Err != nil {
+ 		switch {
+ 		case storage.IsTooLargeResourceVersion(expected.Err):
+@@ -174,7 +177,14 @@ func (s *Model) validateGet(opts storage.GetOptions, expected, output Response)
+ 	reqRV, _ := s.Versioner.ParseResourceVersion(opts.ResourceVersion)
+ 	switch GetReadConsistency(opts) {
+ 	case ConsistencyConsistent:
+-		return reflect.DeepEqual(expected, output)
++		if reflect.DeepEqual(expected, output) {
++			return true
++		}
++		if storage.IsNotFound(expected.Err) {
++			// Cacher returns NotFound errors without the underlying etcd prefix.
++			return reflect.DeepEqual(Response{Err: storage.NewKeyNotFoundError(key, int64(s.ResourceVersion))}, output)
++		}
++		return false
+ 	case ConsistencyNotOlderThan:
+ 		if _, retry := apierrors.SuggestsClientDelay(output.Err); retry && reqRV > 0 && storage.IsTooLargeResourceVersion(output.Err) {
+ 			return true
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage.go
+index d4f67d048990c..1daa0724340bb 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage.go
+@@ -88,6 +88,10 @@ func (s *ModelStorage) GuaranteedUpdate(ctx context.Context, key string, destina
+ 	}, destination)
+ }
+ 
++func (s *ModelStorage) Update(ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	return s.GuaranteedUpdate(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject)
++}
++
+ func (s *ModelStorage) Get(ctx context.Context, key string, opts storage.GetOptions, out runtime.Object) error {
+ 	return s.execute(Request{
+ 		Op:  OpGet,
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage_test.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage_test.go
+index be6884d857247..d37aa5cba0c91 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/correctness/storage_test.go
+@@ -37,8 +37,18 @@ func TestStorageCreate(t *testing.T) {
+ 	storagetesting.RunTestCreate(t.Context(), t, newTestStorage(), func(context.Context, *testing.T, string) {})
+ }
+ 
++func increaseRVFunc(s *ModelStorage) storagetesting.IncreaseRVFunc {
++	return func(ctx context.Context, t *testing.T) int64 {
++		s.mu.Lock()
++		defer s.mu.Unlock()
++		s.state.ResourceVersion++
++		return int64(s.state.ResourceVersion)
++	}
++}
++
+ func TestStorageGet(t *testing.T) {
+-	storagetesting.RunTestGet(t.Context(), t, newTestStorage())
++	s := newTestStorage()
++	storagetesting.RunTestGet(t.Context(), t, increaseRVFunc(s), s)
+ }
+ 
+ func TestStorageGetListRecursivePrefix(t *testing.T) {
+@@ -95,14 +105,8 @@ func TestStorageGuaranteedUpdateWithSuggestionAndConflict(t *testing.T) {
+ 
+ func TestStorageCompactRevision(t *testing.T) {
+ 	s := newTestStorage()
+-	increaseRV := func(ctx context.Context, t *testing.T) int64 {
+-		s.mu.Lock()
+-		defer s.mu.Unlock()
+-		s.state.ResourceVersion++
+-		return int64(s.state.ResourceVersion)
+-	}
+ 	compact := func(ctx context.Context, t *testing.T, resourceVersion string) {
+ 		require.NoError(t, s.Compact(resourceVersion))
+ 	}
+-	storagetesting.RunTestCompactRevision(t.Context(), t, s, increaseRV, compact)
++	storagetesting.RunTestCompactRevision(t.Context(), t, s, increaseRVFunc(s), compact)
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/recorder.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/recorder.go
+index a370dc22c8314..5ef6d1845688f 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/recorder.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/recorder.go
+@@ -59,6 +59,31 @@ func (r *KVRecorder) GetStreamReadsAndReset() uint64 {
+ 	return atomic.SwapUint64(&r.streamReads, 0)
+ }
+ 
++type WatchRecorder struct {
++	clientv3.Watcher
++
++	mux      sync.Mutex
++	requests []clientv3.Op
++}
++
++func NewWatchRecorder(watcher clientv3.Watcher) *WatchRecorder {
++	return &WatchRecorder{Watcher: watcher}
++}
++
++func (r *WatchRecorder) Watch(ctx context.Context, key string, opts ...clientv3.OpOption) clientv3.WatchChan {
++	op := clientv3.OpGet(key, opts...)
++	r.mux.Lock()
++	r.requests = append(r.requests, op)
++	r.mux.Unlock()
++	return r.Watcher.Watch(ctx, key, opts...)
++}
++
++func (r *WatchRecorder) WatchRequests() []clientv3.Op {
++	r.mux.Lock()
++	defer r.mux.Unlock()
++	return append([]clientv3.Op(nil), r.requests...)
++}
++
+ type KubernetesRecorder struct {
+ 	kubernetes.Interface
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
+index 0076c16c69f25..326771939d307 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/store_tests.go
+@@ -118,7 +118,7 @@ func RunTestCreateWithKeyExist(ctx context.Context, t *testing.T, store storage.
+ 	}
+ }
+ 
+-func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
++func RunTestGet(ctx context.Context, t *testing.T, increaseRV IncreaseRVFunc, store storage.Interface) {
+ 	// create an object to test
+ 	key, createdObj := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
+ 	// update the object once to allow get by exact resource version to be tested
+@@ -133,15 +133,10 @@ func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
+ 	if err != nil {
+ 		t.Fatalf("Update failed: %v", err)
+ 	}
+-	// create an additional object to increment the resource version for pods above the resource version of the foo object
+-	secondObj := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "bar", Namespace: "test-ns"}}
+-	lastUpdatedObj := &example.Pod{}
+-	if err := store.Create(ctx, computePodKey(secondObj), secondObj, lastUpdatedObj, 0); err != nil {
+-		t.Fatalf("Set failed: %v", err)
+-	}
++	// Increase RV to test consistent Get.
++	lastUpdatedCurrentRV := int(increaseRV(ctx, t))
+ 
+ 	currentRV, _ := strconv.Atoi(storedObj.ResourceVersion)
+-	lastUpdatedCurrentRV, _ := strconv.Atoi(lastUpdatedObj.ResourceVersion)
+ 	_, invalidRVErr := storage.APIObjectVersioner{}.ParseResourceVersion("invalid")
+ 
+ 	// TODO(jpbetz): Add exact test cases
+@@ -234,9 +229,12 @@ func RunTestGet(ctx context.Context, t *testing.T, store storage.Interface) {
+ 				return
+ 			}
+ 			if tt.expectNotFoundErr {
+-				if err == nil || !storage.IsNotFound(err) {
++				var storageErr *storage.StorageError
++				if !errors.As(err, &storageErr) || storageErr.Code != storage.ErrCodeKeyNotFound {
+ 					t.Errorf("expecting not found error, but get: %v", err)
++					return
+ 				}
++				assert.Equal(t, int64(lastUpdatedCurrentRV), storageErr.ResourceVersion)
+ 				return
+ 			}
+ 			if tt.expectRVTooLarge {
+@@ -2686,6 +2684,12 @@ func RunTestGetListNonRecursive(ctx context.Context, t *testing.T, increaseRV In
+ 		key:         key,
+ 		pred:        storage.Everything,
+ 		expectedOut: []example.Pod{*storedObj},
++	}, {
++		name:                 "existing key, resourceVersionMatch=notOlderThan",
++		key:                  key,
++		pred:                 storage.Everything,
++		expectedAlternatives: [][]example.Pod{{}, {*prevStoredObj}, {*storedObj}},
++		rvMatch:              metav1.ResourceVersionMatchNotOlderThan,
+ 	}, {
+ 		name:                 "existing key, resourceVersion=0",
+ 		key:                  key,
+@@ -4157,7 +4161,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
+ 		err := store.GuaranteedUpdate(ctx, key, &example.Pod{}, false, nil,
+ 			storage.SimpleUpdate(func(obj runtime.Object) (runtime.Object, error) {
+ 				pod := obj.(*example.Pod)
+-				pod.Name = "foo-1"
++				pod.Spec.NodeName = "node-1"
+ 				secondToEnter.Wait()
+ 				return pod, nil
+ 			}), nil)
+@@ -4174,7 +4178,7 @@ func RunTestGuaranteedUpdateWithConflict(ctx context.Context, t *testing.T, stor
+ 			}
+ 			updateCount++
+ 			pod := obj.(*example.Pod)
+-			pod.Name = "foo-2"
++			pod.Spec.NodeName = "node-2"
+ 			return pod, nil
+ 		}), nil)
+ 	if err != nil {
+@@ -4924,9 +4928,9 @@ func RunTestKeySchema(ctx context.Context, t *testing.T, store storage.Interface
+ 	require.ErrorContains(t, store.Create(ctx, "/pods.apps", createObj, createOut, 0), "lacks resource prefix")
+ 	require.ErrorContains(t, store.Create(ctx, "/foo/", createObj, createOut, 0), "lacks resource prefix")
+ 	require.NoError(t, store.Create(ctx, "/pods/", createObj, createOut, 0))
+-	require.NoError(t, store.Create(ctx, "/pods/name", createObj, createOut, 0))
+-	require.NoError(t, store.Create(ctx, "/pods/namespace", createObj, createOut, 0))
+-	require.NoError(t, store.Create(ctx, "/pods/namespace/name", createObj, createOut, 0))
++	require.NoError(t, store.Create(ctx, "/pods/name", &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "name"}}, createOut, 0))
++	require.NoError(t, store.Create(ctx, "/pods/namespace", &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "namespace"}}, createOut, 0))
++	require.NoError(t, store.Create(ctx, "/pods/namespace/name", &example.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: "namespace", Name: "name"}}, createOut, 0))
+ 
+ 	listOut := &example.PodList{}
+ 	recursiveListOpts := storage.ListOptions{Predicate: storage.Everything, Recursive: true}
+@@ -4986,10 +4990,9 @@ func RunTestKeySchema(ctx context.Context, t *testing.T, store storage.Interface
+ 	require.NoError(t, err)
+ 	w.Stop()
+ 
+-	updateIn := &example.Pod{}
+ 	updateOut := &example.Pod{}
+ 	updateFunc := func(input runtime.Object, res storage.ResponseMeta) (output runtime.Object, ttl *uint64, err error) {
+-		return updateIn, nil, nil
++		return input, nil, nil
+ 	}
+ 	require.ErrorContains(t, store.GuaranteedUpdate(ctx, "", updateOut, false, nil, updateFunc, nil), "empty key")
+ 	require.ErrorContains(t, store.GuaranteedUpdate(ctx, "/", updateOut, false, nil, updateFunc, nil), "empty key")
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/utils.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/utils.go
+index 381d094520829..11feb8436ff75 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/utils.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/utils.go
+@@ -23,6 +23,7 @@ import (
+ 	"path"
+ 	"reflect"
+ 	"strconv"
++	"strings"
+ 	"sync"
+ 	"sync/atomic"
+ 	"testing"
+@@ -81,6 +82,29 @@ func DeepEqualSafePodSpec() example.PodSpec {
+ 	}
+ }
+ 
++func PodReverseKeyFunc(prefix string, namespaced bool) storage.ReverseKeyFunc {
++	prefix = strings.TrimSuffix(prefix, "/") + "/"
++	return func(key string) (name string, namespace string, err error) {
++		relativeKey, ok := strings.CutPrefix(key, prefix)
++		if !ok {
++			return "", "", fmt.Errorf("invalid key %q, expected prefix %q", key, prefix)
++		}
++		if namespaced {
++			namespace, name, ok = strings.Cut(relativeKey, "/")
++			// Storage tests bypass API validation and use empty namespaces, which
++			// storage.NamespaceKeyFunc preserves as an empty path segment.
++			if !ok || name == "" || strings.Contains(name, "/") {
++				return "", "", fmt.Errorf("invalid namespaced key %q", key)
++			}
++			return name, namespace, nil
++		}
++		if relativeKey == "" || strings.Contains(relativeKey, "/") {
++			return "", "", fmt.Errorf("invalid cluster-scoped key %q", key)
++		}
++		return relativeKey, "", nil
++	}
++}
++
+ func computePodKey(obj v1.Object) string {
+ 	return fmt.Sprintf("/pods/%s/%s", obj.GetNamespace(), obj.GetName())
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/utils_test.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/utils_test.go
+new file mode 100644
+index 0000000000000..0403bf0d52ae7
+--- /dev/null
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/utils_test.go
+@@ -0,0 +1,61 @@
++/*
++Copyright The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package testing
++
++import (
++	"testing"
++
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apiserver/pkg/apis/example"
++	"k8s.io/apiserver/pkg/storage"
++)
++
++func TestPodReverseKeyFunc(t *testing.T) {
++	for _, tc := range []struct {
++		name       string
++		namespaced bool
++		namespace  string
++	}{
++		{name: "cluster scoped"},
++		{name: "namespaced", namespaced: true, namespace: "ns"},
++		{name: "empty namespace in storage tests", namespaced: true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			pod := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: tc.namespace}}
++			var key string
++			var err error
++			if tc.namespaced {
++				key, err = storage.NamespaceKeyFunc("/pods/", pod)
++			} else {
++				key, err = storage.NoNamespaceKeyFunc("/pods/", pod)
++			}
++			if err != nil {
++				t.Fatal(err)
++			}
++			reverse := PodReverseKeyFunc("/pods/", tc.namespaced)
++			name, namespace, err := reverse(key)
++			if err != nil || name != pod.Name || namespace != pod.Namespace {
++				t.Fatalf("reverse(%q) = (%q, %q, %v)", key, name, namespace, err)
++			}
++			for _, invalid := range []string{"/other/ns/pod", "/pods", "/pods/", "/pods/ns/", "/pods/ns/pod/extra"} {
++				if _, _, err := reverse(invalid); err == nil {
++					t.Errorf("expected error for key %q", invalid)
++				}
++			}
++		})
++	}
++}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/testing/watcher_tests.go b/staging/src/k8s.io/apiserver/pkg/storage/testing/watcher_tests.go
+index 3bf3e73a2f7d8..1e18c866206e5 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/testing/watcher_tests.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/testing/watcher_tests.go
+@@ -20,6 +20,7 @@ import (
+ 	"context"
+ 	"fmt"
+ 	"net/http"
++	"path"
+ 	"strings"
+ 	"sync"
+ 	"testing"
+@@ -47,16 +48,16 @@ import (
+ 	"k8s.io/utils/ptr"
+ )
+ 
+-func RunTestWatch(ctx context.Context, t *testing.T, store storage.Interface) {
+-	testWatch(ctx, t, store, false)
+-	testWatch(ctx, t, store, true)
++func RunTestWatch(ctx context.Context, t *testing.T, store storage.Interface, watchCacheEnabled bool) {
++	testWatch(ctx, t, store, false, watchCacheEnabled)
++	testWatch(ctx, t, store, true, watchCacheEnabled)
+ }
+ 
+ // It tests that
+ // - first occurrence of objects should notify Add event
+ // - update should trigger Modified event
+ // - update that gets filtered should trigger Deleted event
+-func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recursive bool) {
++func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recursive, watchCacheEnabled bool) {
+ 	basePod := &example.Pod{
+ 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+ 		Spec:       example.PodSpec{NodeName: ""},
+@@ -73,11 +74,13 @@ func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recur
+ 	}
+ 
+ 	tests := []struct {
+-		name       string
+-		namespace  string
+-		key        string
+-		pred       storage.SelectionPredicate
+-		watchTests []*testWatchStruct
++		name               string
++		namespace          string
++		key                string
++		pred               storage.SelectionPredicate
++		watchWithoutPrevKV bool
++		expectedWatchError error
++		watchTests         []*testWatchStruct
+ 	}{{
+ 		name:       "create a key",
+ 		namespace:  fmt.Sprintf("test-ns-1-%t", recursive),
+@@ -130,6 +133,56 @@ func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recur
+ 				return labels.Set(pod.Labels), nil, nil
+ 			},
+ 		},
++	}, {
++		name:               "watch without previous values",
++		namespace:          fmt.Sprintf("test-ns-6-%t", recursive),
++		pred:               storage.Everything,
++		watchWithoutPrevKV: true,
++		expectedWatchError: func() error {
++			if watchCacheEnabled {
++				return fmt.Errorf("watchWithoutPrevKV is not supported by the cacher")
++			}
++			return nil
++		}(),
++		watchTests: []*testWatchStruct{
++			{selectedPod(basePod), true, watch.Added},
++			{selectedPod(basePodAssigned), true, watch.Modified},
++			{nil, true, watch.Deleted},
++		},
++	}, {
++		name:               "watch without previous values with a field selector",
++		namespace:          fmt.Sprintf("test-ns-7-%t", recursive),
++		watchWithoutPrevKV: true,
++		expectedWatchError: func() error {
++			if watchCacheEnabled {
++				return fmt.Errorf("watchWithoutPrevKV is not supported by the cacher")
++			}
++			return errors.NewInternalError(fmt.Errorf("watchWithoutPrevKV requires an empty predicate"))
++		}(),
++		pred: storage.SelectionPredicate{
++			Label: labels.Everything(),
++			Field: fields.OneTermEqualSelector("spec.nodeName", "bar"),
++			GetAttrs: func(obj runtime.Object) (labels.Set, fields.Set, error) {
++				return nil, fields.Set{"spec.nodeName": obj.(*example.Pod).Spec.NodeName}, nil
++			},
++		},
++	}, {
++		name:               "watch without previous values with a label selector",
++		namespace:          fmt.Sprintf("test-ns-8-%t", recursive),
++		watchWithoutPrevKV: true,
++		expectedWatchError: func() error {
++			if watchCacheEnabled {
++				return fmt.Errorf("watchWithoutPrevKV is not supported by the cacher")
++			}
++			return errors.NewInternalError(fmt.Errorf("watchWithoutPrevKV requires an empty predicate"))
++		}(),
++		pred: storage.SelectionPredicate{
++			Label: labels.SelectorFromSet(labels.Set{"select": "true"}),
++			Field: fields.Everything(),
++			GetAttrs: func(obj runtime.Object) (labels.Set, fields.Set, error) {
++				return labels.Set(obj.(*example.Pod).Labels), nil, nil
++			},
++		},
+ 	}}
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+@@ -145,7 +198,18 @@ func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recur
+ 				t.Fatalf("List failed: %v", err)
+ 			}
+ 
+-			w, err := store.Watch(ctx, watchKey, storage.ListOptions{ResourceVersion: out.ResourceVersion, Predicate: tt.pred, Recursive: recursive})
++			w, err := store.Watch(ctx, watchKey, storage.ListOptions{
++				ResourceVersion: out.ResourceVersion, Predicate: tt.pred, Recursive: recursive, WatchWithoutPrevKV: tt.watchWithoutPrevKV,
++			})
++			if w != nil {
++				t.Cleanup(w.Stop)
++			}
++			if tt.expectedWatchError != nil {
++				require.EqualError(t, err, tt.expectedWatchError.Error())
++				require.Nil(t, w)
++				require.Equal(t, errors.IsInternalError(tt.expectedWatchError), errors.IsInternalError(err), "unexpected watch error type")
++				return
++			}
+ 			if err != nil {
+ 				t.Fatalf("Watch failed: %v", err)
+ 			}
+@@ -189,6 +253,11 @@ func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recur
+ 					if watchTest.watchType == watch.Deleted {
+ 						expectObj = prevObj
+ 						expectObj.ResourceVersion = out.ResourceVersion
++						if tt.watchWithoutPrevKV {
++							expectObj = &example.Pod{ObjectMeta: metav1.ObjectMeta{
++								Name: prevObj.Name, Namespace: prevObj.Namespace, ResourceVersion: out.ResourceVersion,
++							}}
++						}
+ 					}
+ 					expectEvent = &watch.Event{Type: watchTest.watchType, Object: expectObj}
+ 				}
+@@ -201,6 +270,25 @@ func testWatch(ctx context.Context, t *testing.T, store storage.Interface, recur
+ 	}
+ }
+ 
++func RunTestWatchWithoutPrevKVReverseError(ctx context.Context, t *testing.T, store storage.Interface, wantErr error) {
++	key, storedObj := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "ns"}})
++	w, err := store.Watch(ctx, key, storage.ListOptions{
++		ResourceVersion: storedObj.ResourceVersion, Predicate: storage.Everything, WatchWithoutPrevKV: true,
++	})
++	require.NoError(t, err)
++	t.Cleanup(w.Stop)
++
++	err = store.Delete(ctx, key, &example.Pod{}, nil, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{})
++	require.NoError(t, err)
++	testCheckResultFunc(t, w, func(actualEvent watch.Event) {
++		require.Equal(t, watch.Error, actualEvent.Type)
++		err := errors.FromObject(actualEvent.Object)
++		require.True(t, errors.IsInternalError(err), "expected an internal error, got %v", err)
++		require.ErrorContains(t, err, wantErr.Error())
++	})
++	testCheckStop(t, w)
++}
++
+ // RunTestWatchFromZero tests that
+ //   - watch from 0 should sync up and grab the object added before
+ //   - For testing with etcd, watch from 0 is able to return events for objects
+@@ -557,15 +645,23 @@ func RunTestWatcherTimeout(ctx context.Context, t *testing.T, store storage.Inte
+ 	}
+ }
+ 
+-func RunTestWatchDeleteEventObjectHaveLatestRV(ctx context.Context, t *testing.T, store storage.Interface) {
+-	key, storedObj := testPropagateStore(ctx, t, store, &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "test-ns"}})
++func RunTestWatchDeleteEventObjectHaveLatestRV(ctx context.Context, t *testing.T, store storage.Interface, namespace string, watchWithoutPrevKV bool, recorder *WatchRecorder) {
++	pod := &example.Pod{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: namespace, Labels: map[string]string{"app": "test"}}}
++	key := path.Join("/pods", namespace, pod.Name)
++	storedObj := &example.Pod{}
++	if err := store.Create(ctx, key, pod, storedObj, 0); err != nil {
++		t.Fatalf("Create failed: %v", err)
++	}
+ 
+ 	watchCtx, cancel := context.WithTimeout(ctx, wait.ForeverTestTimeout)
+ 	t.Cleanup(cancel)
+-	w, err := store.Watch(watchCtx, key, storage.ListOptions{ResourceVersion: storedObj.ResourceVersion, Predicate: storage.Everything})
++	w, err := store.Watch(watchCtx, key, storage.ListOptions{
++		ResourceVersion: storedObj.ResourceVersion, Predicate: storage.Everything, WatchWithoutPrevKV: watchWithoutPrevKV,
++	})
+ 	if err != nil {
+ 		t.Fatalf("Watch failed: %v", err)
+ 	}
++	t.Cleanup(w.Stop)
+ 
+ 	deletedObj := &example.Pod{}
+ 	if err := store.Delete(ctx, key, deletedObj, &storage.Preconditions{}, storage.ValidateAllObjectFunc, nil, storage.DeleteOptions{}); err != nil {
+@@ -577,7 +673,18 @@ func RunTestWatchDeleteEventObjectHaveLatestRV(ctx context.Context, t *testing.T
+ 		t.Fatalf("ResourceVersion didn't changed on deletion: %s", deletedObj.ResourceVersion)
+ 	}
+ 
+-	testCheckResult(t, w, &watch.Event{Type: watch.Deleted, Object: deletedObj})
++	expectedObj := deletedObj
++	if watchWithoutPrevKV {
++		expectedObj = &example.Pod{ObjectMeta: metav1.ObjectMeta{
++			Name: pod.Name, Namespace: namespace, ResourceVersion: deletedObj.ResourceVersion,
++		}}
++	}
++	testCheckResult(t, w, &watch.Event{Type: watch.Deleted, Object: expectedObj})
++	if recorder != nil {
++		requests := recorder.WatchRequests()
++		require.Len(t, requests, 1)
++		require.Equal(t, !watchWithoutPrevKV, requests[0].IsPrevKV(), "etcd watch PrevKV option")
++	}
+ }
+ 
+ func RunTestWatchInitializationSignal(ctx context.Context, t *testing.T, store storage.Interface) {
+diff --git a/test/compatibility_lifecycle/reference/feature_list.md b/test/compatibility_lifecycle/reference/feature_list.md
+index ec9b5b857161e..5482143edd620 100644
+--- a/test/compatibility_lifecycle/reference/feature_list.md
++++ b/test/compatibility_lifecycle/reference/feature_list.md
+@@ -43,6 +43,7 @@
+ | CompositePodGroup |  |  | 1.37– |  |  |  | GenericWorkload<br>TopologyAwareWorkloadScheduling | [code](https://cs.k8s.io/?q=%5CbCompositePodGroup%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbCompositePodGroup%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | ConcurrentWatchObjectDecode | :ballot_box_with_check:&nbsp;1.37+ |  |  | 1.31– |  |  |  | [code](https://cs.k8s.io/?q=%5CbConcurrentWatchObjectDecode%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbConcurrentWatchObjectDecode%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | ConditionalAuthorization |  |  | 1.38– |  |  |  |  | [code](https://cs.k8s.io/?q=%5CbConditionalAuthorization%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbConditionalAuthorization%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
++| ConsistentGetFromCache | :ballot_box_with_check:&nbsp;1.38+ |  |  | 1.38– |  |  |  | [code](https://cs.k8s.io/?q=%5CbConsistentGetFromCache%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbConsistentGetFromCache%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | ConsistentListFromCacheSkipTimeoutFallback |  |  | 1.37– |  |  |  |  | [code](https://cs.k8s.io/?q=%5CbConsistentListFromCacheSkipTimeoutFallback%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbConsistentListFromCacheSkipTimeoutFallback%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | ConstrainedImpersonation | :ballot_box_with_check:&nbsp;1.36+ |  | 1.35 | 1.36– |  |  |  | [code](https://cs.k8s.io/?q=%5CbConstrainedImpersonation%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbConstrainedImpersonation%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | ContainerCheckpoint | :ballot_box_with_check:&nbsp;1.30+ |  | 1.25–1.29 | 1.30– |  |  |  | [code](https://cs.k8s.io/?q=%5CbContainerCheckpoint%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbContainerCheckpoint%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+@@ -234,6 +235,7 @@
+ | VolumeBindMountOptions |  |  | 1.37– |  |  |  |  | [code](https://cs.k8s.io/?q=%5CbVolumeBindMountOptions%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbVolumeBindMountOptions%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | VolumeLimitScaling | :ballot_box_with_check:&nbsp;1.37+ |  | 1.35–1.36 | 1.37– |  |  |  | [code](https://cs.k8s.io/?q=%5CbVolumeLimitScaling%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbVolumeLimitScaling%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | WatchCacheInitializationPostStartHook | :ballot_box_with_check:&nbsp;1.36+ | :closed_lock_with_key:&nbsp;1.37+ |  | 1.31–1.36 | 1.37– |  |  | [code](https://cs.k8s.io/?q=%5CbWatchCacheInitializationPostStartHook%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbWatchCacheInitializationPostStartHook%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
++| WatchFromStorageWithoutPrevKV | :ballot_box_with_check:&nbsp;1.38+ |  |  | 1.38– |  |  |  | [code](https://cs.k8s.io/?q=%5CbWatchFromStorageWithoutPrevKV%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbWatchFromStorageWithoutPrevKV%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | WatchList | :ballot_box_with_check:&nbsp;1.32+ |  | 1.27–1.31 | 1.32– |  |  |  | [code](https://cs.k8s.io/?q=%5CbWatchList%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbWatchList%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | WatchListClient | :ballot_box_with_check:&nbsp;1.35+ |  |  | 1.30– |  |  |  | [code](https://cs.k8s.io/?q=%5CbWatchListClient%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbWatchListClient%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+ | WatchListCompression | :ballot_box_with_check:&nbsp;1.37+ |  |  | 1.37– |  |  |  | [code](https://cs.k8s.io/?q=%5CbWatchListCompression%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/kubernetes) [KEPs](https://cs.k8s.io/?q=%5CbWatchListCompression%5Cb&i=nope&files=&excludeFiles=CHANGELOG&repos=kubernetes/enhancements) |
+diff --git a/test/compatibility_lifecycle/reference/versioned_feature_list.yaml b/test/compatibility_lifecycle/reference/versioned_feature_list.yaml
+index 2e380a12cc2bd..09cc163220c08 100644
+--- a/test/compatibility_lifecycle/reference/versioned_feature_list.yaml
++++ b/test/compatibility_lifecycle/reference/versioned_feature_list.yaml
+@@ -226,6 +226,12 @@
+     lockToDefault: false
+     preRelease: Alpha
+     version: "1.38"
++- name: ConsistentGetFromCache
++  versionedSpecs:
++  - default: true
++    lockToDefault: false
++    preRelease: Beta
++    version: "1.38"
+ - name: ConsistentListFromCacheSkipTimeoutFallback
+   versionedSpecs:
+   - default: false
+@@ -2162,6 +2168,12 @@
+     lockToDefault: true
+     preRelease: GA
+     version: "1.37"
++- name: WatchFromStorageWithoutPrevKV
++  versionedSpecs:
++  - default: true
++    lockToDefault: false
++    preRelease: Beta
++    version: "1.38"
+ - name: WatchList
+   versionedSpecs:
+   - default: false
+diff --git a/test/integration/apiserver/storage/correctness_test.go b/test/integration/apiserver/storage/correctness_test.go
+index e0dbc05c741ac..2fc95b1d7222f 100644
+--- a/test/integration/apiserver/storage/correctness_test.go
++++ b/test/integration/apiserver/storage/correctness_test.go
+@@ -30,9 +30,12 @@ import (
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/types"
++	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/cacher"
+ 	"k8s.io/apiserver/pkg/storage/testing/correctness"
++	utilfeature "k8s.io/apiserver/pkg/util/feature"
++	featuregatetesting "k8s.io/component-base/featuregate/testing"
+ 	"k8s.io/ktesting"
+ 	api "k8s.io/kubernetes/pkg/apis/core"
+ )
+@@ -236,6 +239,14 @@ func TestCorrectness(t *testing.T) {
+ 				return setupCacher(tCtx, store), prefix
+ 			},
+ 		},
++		{
++			name: "cacher without WatchFromStorageWithoutPrevKV",
++			setupStorage: func(tCtx ktesting.TContext) (storage.Interface, string) {
++				featuregatetesting.SetFeatureGateDuringTest(tCtx, utilfeature.DefaultFeatureGate, features.WatchFromStorageWithoutPrevKV, false)
++				store, prefix := setupStore(tCtx)
++				return setupCacher(tCtx, store), prefix
++			},
++		},
+ 		{
+ 			// Covers cacher reinitialization and unready (Pending) state handling:
+ 			// - Watch expiration (410 Gone) and reconnect failure (cacher.startCaching WatchCacheInitializationErrors)
+@@ -255,8 +266,8 @@ func TestCorrectness(t *testing.T) {
+ 		{
+ 			// Covers watch delivery lag exceeding blockTimeout (3s):
+ 			// - watchCache.waitUntilFreshLocked timing out with TooLargeResourceVersionError
+-			// - CacheDelegator.GetList catching TooLargeResourceVersionError on consistent reads (RV="") and falling back to etcd
+-			// - Cacher.GetList (non-consistent RVCached) and Cacher.Get returning TooLargeResourceVersionError
++			// - CacheDelegator.Get and CacheDelegator.GetList catching TooLargeResourceVersionError on consistent reads (RV="") and falling back to etcd
++			// - Cacher.Get and Cacher.GetList (non-consistent RVCached) returning TooLargeResourceVersionError
+ 			// - Cacher.Watch (SendInitialEvents=true) timing out in waitUntilWatchCacheFreshAndForceAllEvents and returning errWatcher
+ 			name: "cacher with watch-delaying etcd",
+ 			setupStorage: func(tCtx ktesting.TContext) (storage.Interface, string) {
+@@ -264,23 +275,23 @@ func TestCorrectness(t *testing.T) {
+ 				return setupCacher(tCtx, &watchDelayingStore{Interface: store, delay: 3600 * time.Millisecond}), prefix
+ 			},
+ 			validateFaultInjection: func(tCtx ktesting.TContext, ops []correctness.Operation, watches []correctness.WatchOperation) {
+-				require.True(tCtx, hasConsistentListFallback(ops) || hasUnaryTimeoutError(ops),
+-					"expected >3s watch delay to trigger consistent List fallback to etcd or unary TooLargeResourceVersionError")
++				require.True(tCtx, hasConsistentReadFallback(ops) || hasUnaryTimeoutError(ops),
++					"expected >3s watch delay to trigger consistent read fallback to etcd or unary TooLargeResourceVersionError")
+ 			},
+ 		},
+ 		{
+ 			// Covers broken watch progress notifications when etcd revision advances outside the watched prefix:
+ 			// - ConditionalProgressRequester requesting watch progress every 100ms and handling RequestWatchProgress errors
+ 			// - Dropped progress bookmarks preventing watchCache.resourceVersion from advancing during an idle window (>3s),
+-			//   causing waitUntilFreshLocked timeouts on GetList (falling back to etcd on consistent reads) and WatchList
++			//   causing waitUntilFreshLocked timeouts on Get and GetList (falling back to etcd on consistent reads) and WatchList
+ 			name: "cacher with bookmark-dropping etcd",
+ 			setupStorage: func(tCtx ktesting.TContext) (storage.Interface, string) {
+ 				store, prefix := setupStore(tCtx)
+ 				return setupCacher(tCtx, &bookmarkDroppingStore{Interface: store, stallDuration: 4700 * time.Millisecond}), prefix
+ 			},
+ 			validateFaultInjection: func(tCtx ktesting.TContext, ops []correctness.Operation, watches []correctness.WatchOperation) {
+-				require.True(tCtx, hasConsistentListFallback(ops) || hasUnaryTimeoutError(ops),
+-					"expected dropped progress bookmarks during >3s idle window to trigger consistent List fallback to etcd or unary TooLargeResourceVersionError")
++				require.True(tCtx, hasConsistentReadFallback(ops) || hasUnaryTimeoutError(ops),
++					"expected dropped progress bookmarks during >3s idle window to trigger consistent read fallback to etcd or unary TooLargeResourceVersionError")
+ 				require.True(tCtx, hasWatchEventReason(watches, metav1.StatusReasonTimeout),
+ 					"expected dropped progress bookmarks during >3s idle window to trigger WatchList StatusReasonTimeout error events")
+ 			},
+diff --git a/test/integration/apiserver/storage/faults.go b/test/integration/apiserver/storage/faults.go
+index 8824ecfec8b67..e2cff882ce1bb 100644
+--- a/test/integration/apiserver/storage/faults.go
++++ b/test/integration/apiserver/storage/faults.go
+@@ -50,12 +50,22 @@ func hasUnaryTimeoutError(ops []correctness.Operation) bool {
+ 	return false
+ }
+ 
+-// hasConsistentListFallback checks whether any consistent List (ResourceVersion == "")
++// hasConsistentReadFallback checks whether any consistent Get or List (ResourceVersion == "")
+ // waited for cacher's 3s blockTimeout before falling back to etcd and succeeding.
+-func hasConsistentListFallback(ops []correctness.Operation) bool {
++func hasConsistentReadFallback(ops []correctness.Operation) bool {
+ 	for _, op := range ops {
+-		if op.Request.Op == correctness.OpList && op.Request.List.Options.ResourceVersion == "" && op.Response.Err == nil && op.End.Sub(op.Start) >= 3*time.Second {
+-			return true
++		if op.End.Sub(op.Start) < 3*time.Second {
++			continue
++		}
++		switch op.Request.Op {
++		case correctness.OpGet:
++			if op.Request.Get.Options.ResourceVersion == "" && (op.Response.Err == nil || storage.IsNotFound(op.Response.Err)) {
++				return true
++			}
++		case correctness.OpList:
++			if op.Request.List.Options.ResourceVersion == "" && op.Response.Err == nil {
++				return true
++			}
+ 		}
+ 	}
+ 	return false
+@@ -340,6 +350,16 @@ func (s *bookmarkDroppingStore) GuaranteedUpdate(ctx context.Context, key string
+ 	return err
+ }
+ 
++func (s *bookmarkDroppingStore) Update(ctx context.Context, key string, destination runtime.Object, ignoreNotFound bool, preconditions *storage.Preconditions, tryUpdate storage.UpdateFunc, cachedExistingObject runtime.Object) error {
++	s.writeMu.RLock()
++	defer s.writeMu.RUnlock()
++	err := s.Interface.Update(ctx, key, destination, ignoreNotFound, preconditions, tryUpdate, cachedExistingObject)
++	if err == nil {
++		s.writesSeen.Add(1)
++	}
++	return err
++}
++
+ func (s *bookmarkDroppingStore) GetCurrentResourceVersion(ctx context.Context) (uint64, error) {
+ 	if s.stallDuration > 0 && s.writesSeen.Load() >= 100 && s.stalled.CompareAndSwap(false, true) {
+ 		ready := make(chan struct{})
+diff --git a/test/integration/apiserver/storage/reproductions/stale-get.patch b/test/integration/apiserver/storage/reproductions/stale-get.patch
+index 4678a68b356e1..649898841f1e6 100644
+--- a/test/integration/apiserver/storage/reproductions/stale-get.patch
++++ b/test/integration/apiserver/storage/reproductions/stale-get.patch
+@@ -1,34 +1,16 @@
+ diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+-index 9df8cdd9e34..b1a40dc8921 100644
++index d2101053d29..5959655bc78 100644
+ --- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+ +++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+-@@ -711,9 +711,6 @@ func (c *Cacher) Get(ctx context.Context, key string, opts storage.GetOptions, o
+- 	if err != nil {
++@@ -717,6 +717,11 @@ func (c *Cacher) Get(ctx context.Context, key string, opts storage.GetOptions, o
+  		return err
+  	}
+--	if opts.ResourceVersion == "" {
+--		return storage.NewInternalError(fmt.Errorf("cacher doesn't support consistent Get"))
+--	}
+- 	minResourceVersion, err := c.versioner.ParseResourceVersion(opts.ResourceVersion)
++ 
+++	if opts.ResourceVersion == "" {
+++		// BUG INJECTION: serve consistent Get(RV="") from the current watch cache
+++		// state without fetching the latest RV from etcd.
+++		opts.ResourceVersion = "0"
+++	}
++ 	obj, exists, readResourceVersion, err := c.get(ctx, key, opts.ResourceVersion)
+  	if err != nil {
+  		return err
+-diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+-index 3e12f481a9c..12d78a04c11 100644
+---- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+-+++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+-@@ -108,12 +108,9 @@ func (c *CacheDelegator) Watch(ctx context.Context, key string, opts storage.Lis
+- }
+- 
+- func (c *CacheDelegator) Get(ctx context.Context, key string, opts storage.GetOptions, objPtr runtime.Object) error {
+--	if opts.ResourceVersion == "" {
+--		// If resourceVersion is not specified, serve it from underlying
+--		// storage (for backward compatibility).
+--		return c.storage.Get(ctx, key, opts, objPtr)
+--	}
+--
+-+	// BUG INJECTION: the RV=="" bypass that routes consistent Gets to etcd has
+-+	// been removed, so they are served from the watch cache instead, which may
+-+	// be arbitrarily stale.
+- 	if !c.cacher.Ready() {
+- 		// If Cache is not initialized, delegator Get requests to storage
+- 		// as described in https://kep.k8s.io/4568
+diff --git a/test/integration/apiserver/storage/setup.go b/test/integration/apiserver/storage/setup.go
+index 5f95e33d78eb0..856cce62a00b1 100644
+--- a/test/integration/apiserver/storage/setup.go
++++ b/test/integration/apiserver/storage/setup.go
+@@ -27,6 +27,7 @@ import (
+ 	"k8s.io/apimachinery/pkg/runtime/schema"
+ 	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/registry/generic"
++	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
+ 	"k8s.io/apiserver/pkg/server/options"
+ 	serverstorage "k8s.io/apiserver/pkg/server/storage"
+ 	"k8s.io/apiserver/pkg/storage"
+@@ -86,7 +87,7 @@ func setupStore(tCtx ktesting.TContext) (storage.Interface, string) {
+ 		storageConfig,
+ 		func() runtime.Object { return &api.Pod{} },
+ 		func() runtime.Object { return &api.PodList{} },
+-		nil,
++		genericregistry.NamespaceReverseKeyFunc("/pods"),
+ 		"/pods",
+ 	)
+ 	if err != nil {

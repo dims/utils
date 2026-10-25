@@ -1,0 +1,30 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/getorinsert
+cpu: Apple M4 Pro
+BenchmarkPutNew/GetThenReplaceOrInsert/100k-14         	 1529718	       772.1 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetThenReplaceOrInsert/100k-14         	 1534815	       773.3 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetOrInsert/100k-14                    	 2204836	       545.0 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetOrInsert/100k-14                    	 2171492	       546.9 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetThenReplaceOrInsert/1M-14           	  685911	      2283 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetThenReplaceOrInsert/1M-14           	  542374	      2281 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetOrInsert/1M-14                      	  563358	      2114 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutNew/GetOrInsert/1M-14                      	  728169	      2127 ns/op	      83 B/op	       1 allocs/op
+BenchmarkPutExisting/Get/100k-14                       	 3412652	       347.7 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/Get/100k-14                       	 3451164	       348.6 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetOrInsert/100k-14               	 3384967	       353.7 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetOrInsert/100k-14               	 3138699	       352.8 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetAfterClone/100k-14             	 3293425	       359.2 ns/op	      80 B/op	       2 allocs/op
+BenchmarkPutExisting/GetAfterClone/100k-14             	 3321764	       359.3 ns/op	      80 B/op	       2 allocs/op
+BenchmarkPutExisting/GetOrInsertAfterClone/100k-14     	 1250510	       962.0 ns/op	    2784 B/op	       9 allocs/op
+BenchmarkPutExisting/GetOrInsertAfterClone/100k-14     	 1245093	       956.6 ns/op	    2784 B/op	       9 allocs/op
+BenchmarkPutExisting/Get/1M-14                         	  898856	      1540 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/Get/1M-14                         	  804434	      1568 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetOrInsert/1M-14                 	  863138	      1564 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetOrInsert/1M-14                 	  986763	      1532 ns/op	      64 B/op	       1 allocs/op
+BenchmarkPutExisting/GetAfterClone/1M-14               	  895365	      1576 ns/op	      80 B/op	       2 allocs/op
+BenchmarkPutExisting/GetAfterClone/1M-14               	  718978	      1556 ns/op	      80 B/op	       2 allocs/op
+BenchmarkPutExisting/GetOrInsertAfterClone/1M-14       	  503785	      2263 ns/op	    2892 B/op	      12 allocs/op
+BenchmarkPutExisting/GetOrInsertAfterClone/1M-14       	  528103	      2289 ns/op	    2892 B/op	      12 allocs/op
+PASS
+ok  	btreeproto/getorinsert	102.594s

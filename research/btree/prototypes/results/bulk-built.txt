@@ -1,0 +1,42 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/bulk
+cpu: Apple M4 Pro
+BenchmarkBuiltGet/insert-sorted/100k-14         	 3181790	       368.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-sorted/100k-14         	 3290238	       368.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-random/100k-14         	 3021499	       385.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-random/100k-14         	 3111697	       384.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/bulk/100k-14                  	 3284652	       364.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/bulk/100k-14                  	 3325990	       355.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-sorted/1M-14           	  988276	      1407 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-sorted/1M-14           	  975291	      1467 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-random/1M-14           	  993188	      1696 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/insert-random/1M-14           	  996021	      1621 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/bulk/1M-14                    	 1000000	      1473 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltGet/bulk/1M-14                    	 1000000	      1412 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/insert-sorted/100k-14         	   24650	     48564 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/insert-sorted/100k-14         	   24338	     48578 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-sorted/100k-14       	    4153	    279859 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-sorted/100k-14       	    4257	    279017 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/insert-random/100k-14         	   21043	     56577 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/insert-random/100k-14         	   21158	     56607 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-random/100k-14       	    3948	    302797 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-random/100k-14       	    3906	    301723 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/bulk/100k-14                  	   23372	     51081 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/bulk/100k-14                  	   23182	     51216 ns/op	      34 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/bulk/100k-14                	    4074	    290012 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/bulk/100k-14                	    4088	    290640 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/insert-sorted/1M-14           	   24450	     49076 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/insert-sorted/1M-14           	   24178	     49042 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-sorted/1M-14         	     427	   2721261 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-sorted/1M-14         	     451	   2578078 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/insert-random/1M-14           	   20059	     59492 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/insert-random/1M-14           	   20088	     59584 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-random/1M-14         	     360	   3304932 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/insert-random/1M-14         	     358	   3304683 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/scan20k/bulk/1M-14                    	   22550	     50514 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/scan20k/bulk/1M-14                    	   23702	     50537 ns/op	      39 B/op	       1 allocs/op
+BenchmarkBuiltScan/ascendAll/bulk/1M-14                  	     415	   2879609 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuiltScan/ascendAll/bulk/1M-14                  	     412	   2772323 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	btreeproto/bulk	61.773s

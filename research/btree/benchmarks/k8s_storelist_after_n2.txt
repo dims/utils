@@ -1,0 +1,9 @@
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=/Scope=Cluster/Paginate=1000-14         	      46	  57894524 ns/op	      2591 list-calls/s	   2590921 list-objs/s	187339456 B/op	   10303 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=/Scope=Cluster/Paginate=1000-14         	      66	  53629340 ns/op	      2797 list-calls/s	   2796978 list-objs/s	187339544 B/op	   10293 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=/Scope=Namespace/Paginate=1000-14       	   10000	    594178 ns/op	      5049 list-calls/s	   5048993 list-objs/s	 3761010 B/op	     401 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=/Scope=Namespace/Paginate=1000-14       	   10000	    586956 ns/op	      5111 list-calls/s	   5111113 list-objs/s	 3764669 B/op	     416 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=Exact/Scope=Cluster/Paginate=1000-14    	      62	  46525685 ns/op	      3224 list-calls/s	   3222576 list-objs/s	187238721 B/op	   10144 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=Exact/Scope=Cluster/Paginate=1000-14    	      67	  51698116 ns/op	      2901 list-calls/s	   2900204 list-objs/s	187242722 B/op	   10146 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=Exact/Scope=Namespace/Paginate=1000-14  	   10000	    636911 ns/op	      4710 list-calls/s	   4709450 list-objs/s	 3743944 B/op	     187 allocs/op
+BenchmarkStoreList/Namespaces=50/Pods=150000/Nodes=5000/Indexed=false/RV=Exact/Scope=Namespace/Paginate=1000-14  	   10000	    640498 ns/op	      4684 list-calls/s	   4683075 list-objs/s	 3743943 B/op	     187 allocs/op
+ok  	k8s.io/apiserver/pkg/storage/cacher	111.086s

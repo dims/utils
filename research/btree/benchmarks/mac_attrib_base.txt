@@ -1,0 +1,41 @@
+goos: darwin
+goarch: arm64
+cpu: Apple M4 Pro
+BenchmarkStringKeyGet/degree=16-14   	 2364523	       526.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2318050	       536.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2306989	       505.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2351406	       500.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2409147	       508.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2357032	       509.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2383809	       481.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2439195	       481.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2501352	       492.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2522352	       481.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2380743	       501.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 2454420	       486.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  408919	      2950 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  411170	      2937 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  408150	      2941 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  411574	      2937 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  394053	      2953 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  391748	      2945 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendRange-14     	  383709	      3151 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  375488	      3155 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  374126	      3138 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  385795	      3154 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  382714	      3145 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  379399	      3158 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5709	    212150 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5720	    212389 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5662	    212524 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5688	    213750 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5697	    215536 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	    5629	    213950 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4016	    295263 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4034	    294901 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4106	    293646 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4124	    293900 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4036	    292402 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    4080	    299172 ns/op	     117 B/op	       3 allocs/op
+PASS
+ok  	expbase/ext	56.670s

@@ -1,0 +1,723 @@
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+index d3aba4323bc0e..4c826a16f4d2c 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+@@ -745,7 +745,7 @@ func computeListLimit(opts storage.ListOptions) int64 {
+ }
+ 
+ type listResp struct {
+-	Items           []interface{}
++	Result          store.ListResult
+ 	ResourceVersion uint64
+ }
+ 
+@@ -785,74 +785,61 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
+ 		return fmt.Errorf("need a pointer to slice, got %v", listVal.Kind())
+ 	}
+ 
+-	resp, indexUsed, err := c.watchCache.WaitUntilFreshAndGetList(ctx, preparedKey, opts)
+-	if err != nil {
+-		return err
+-	}
+-	span.AddEvent("Listed items from cache", attribute.Int("count", len(resp.Items)))
+-	var lastSelectedObjectKey string
+-	var hasMoreListItems bool
+ 	limit := computeListLimit(opts)
+-	if opts.Predicate.Empty() {
+-		// Every item matches, so the result size is known upfront and items can be
+-		// copied directly into the result list without an intermediate slice.
+-		count := len(resp.Items)
+-		if limit > 0 && int64(count) > limit {
+-			count = int(limit)
+-			hasMoreListItems = true
+-		}
+-		listVal.Set(reflect.MakeSlice(listVal.Type(), count, count))
+-		for i, obj := range resp.Items[:count] {
+-			elem, ok := obj.(*store.Element)
+-			if !ok {
+-				return fmt.Errorf("non *store.Element returned from storage: %v", obj)
+-			}
+-			listVal.Index(i).Set(reflect.ValueOf(elem.Object).Elem())
+-			lastSelectedObjectKey = elem.Key
+-		}
+-	} else {
+-		// store pointer of eligible objects,
+-		// Why not directly put object in the items of listObj?
+-		//   the elements in ListObject are Struct type, making slice will bring excessive memory consumption.
+-		//   so we try to delay this action as much as possible
+-		var selectedObjects []runtime.Object
+-		for i, obj := range resp.Items {
+-			elem, ok := obj.(*store.Element)
+-			if !ok {
+-				return fmt.Errorf("non *store.Element returned from storage: %v", obj)
+-			}
+-			shardMatch := true
+-			if utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) {
+-				var err error
+-				shardMatch, err = opts.Predicate.MatchesSharding(elem.Object)
++	isEmpty := opts.Predicate.Empty()
++
++	var selectedObjects []runtime.Object
++	if limit > 0 {
++		selectedObjects = make([]runtime.Object, 0, limit)
++	}
++
++	req := store.ListRequest{
++		Prefix:            preparedKey,
++		Limit:             limit,
++		ComputeTotalCount: isEmpty,
++		Consume: func(elem *store.Element) error {
++			selectedObjects = append(selectedObjects, elem.Object)
++			return nil
++		},
++	}
++
++	if !isEmpty {
++		isSharded := utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch)
++		req.Filter = func(elem *store.Element) (bool, error) {
++			if isSharded {
++				matches, err := opts.Predicate.MatchesSharding(elem.Object)
+ 				if err != nil {
+-					return fmt.Errorf("shard matching failed: %w", err)
++					return false, fmt.Errorf("shard matching failed: %w", err)
++				}
++				if !matches {
++					return false, nil
+ 				}
+ 			}
+-			if shardMatch && opts.Predicate.MatchesObjectAttributes(elem.Labels, elem.Fields) {
+-				selectedObjects = append(selectedObjects, elem.Object)
+-				lastSelectedObjectKey = elem.Key
+-			}
+-			if limit > 0 && int64(len(selectedObjects)) >= limit {
+-				hasMoreListItems = i < len(resp.Items)-1
+-				break
+-			}
++			return opts.Predicate.MatchesObjectAttributes(elem.Labels, elem.Fields), nil
+ 		}
+-		if len(selectedObjects) == 0 {
+-			// Ensure that we never return a nil Items pointer in the result for consistency.
+-			listVal.Set(reflect.MakeSlice(listVal.Type(), 0, 0))
+-		} else {
+-			// Resize the slice appropriately, since we already know that size of result set
+-			listVal.Set(reflect.MakeSlice(listVal.Type(), len(selectedObjects), len(selectedObjects)))
+-			span.AddEvent("Resized result")
+-			for i, o := range selectedObjects {
+-				listVal.Index(i).Set(reflect.ValueOf(o).Elem())
+-			}
++	}
++
++	resp, indexUsed, err := c.watchCache.WaitUntilFreshAndGetList(ctx, preparedKey, opts, req)
++	if err != nil {
++		return err
++	}
++	span.AddEvent("Listed items from cache", attribute.Int("count", resp.Result.NumMatched))
++
++	if len(selectedObjects) == 0 {
++		// Ensure that we never return a nil Items pointer in the result for consistency.
++		listVal.Set(reflect.MakeSlice(listVal.Type(), 0, 0))
++	} else {
++		// Resize the slice appropriately, since we already know that size of result set
++		listVal.Set(reflect.MakeSlice(listVal.Type(), len(selectedObjects), len(selectedObjects)))
++		span.AddEvent("Resized result")
++		for i, o := range selectedObjects {
++			listVal.Index(i).Set(reflect.ValueOf(o).Elem())
+ 		}
+ 	}
+ 	span.AddEvent("Filtered items", attribute.Int("count", listVal.Len()))
++
+ 	if c.versioner != nil {
+-		continueValue, remainingItemCount, err := storage.PrepareContinueToken(lastSelectedObjectKey, key, int64(resp.ResourceVersion), int64(len(resp.Items)), hasMoreListItems, opts)
++		continueValue, remainingItemCount, err := storage.PrepareContinueToken(resp.Result.LastSelectedObjectKey, key, int64(resp.ResourceVersion), resp.Result.TotalCount, resp.Result.HasMore, opts)
+ 		if err != nil {
+ 			return err
+ 		}
+@@ -864,7 +851,7 @@ func (c *Cacher) GetList(ctx context.Context, key string, opts storage.ListOptio
+ 	if utilfeature.DefaultFeatureGate.Enabled(features.ShardedListAndWatch) {
+ 		opts.Predicate.SetShardInfoOnList(listObj)
+ 	}
+-	metrics.RecordListCacheMetrics(c.groupResource, indexUsed, len(resp.Items), listVal.Len())
++	metrics.RecordListCacheMetrics(c.groupResource, indexUsed, resp.Result.NumFetched, listVal.Len())
+ 	return nil
+ }
+ 
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+index f4c32e3edd8cb..71457fd1e150f 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher_whitebox_test.go
+@@ -51,6 +51,7 @@ import (
+ 	"k8s.io/apiserver/pkg/storage"
+ 	"k8s.io/apiserver/pkg/storage/cacher/delegator"
+ 	"k8s.io/apiserver/pkg/storage/cacher/metrics"
++	"k8s.io/apiserver/pkg/storage/cacher/store"
+ 	etcd3testing "k8s.io/apiserver/pkg/storage/etcd3/testing"
+ 	etcdfeature "k8s.io/apiserver/pkg/storage/feature"
+ 	storagemetrics "k8s.io/apiserver/pkg/storage/metrics"
+@@ -3140,7 +3141,7 @@ func TestListIndexer(t *testing.T) {
+ 	for _, tt := range tests {
+ 		t.Run(tt.name, func(t *testing.T) {
+ 			pred := storagetesting.CreatePodPredicate(tt.fieldSelector, true, tt.indexFields)
+-			_, usedIndex, err := cacher.cacher.watchCache.WaitUntilFreshAndGetList(ctx, "/pods/"+tt.requestedNamespace, storage.ListOptions{Predicate: pred, Recursive: tt.recursive})
++			_, usedIndex, err := cacher.cacher.watchCache.WaitUntilFreshAndGetList(ctx, "/pods/"+tt.requestedNamespace, storage.ListOptions{Predicate: pred, Recursive: tt.recursive}, store.ListRequest{Prefix: "/pods/" + tt.requestedNamespace})
+ 			if err != nil {
+ 				t.Errorf("Unexpected error: %v", err)
+ 			}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store.go
+index 242f526cc386d..a10f00040cda2 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store.go
+@@ -71,11 +71,38 @@ type Indexer interface {
+ 	Count(prefix, continueKey string) (count int)
+ 	Clone() Snapshot
+ 	OrderedListPrefix(prefix, continueKey string) ([]interface{}, error)
++	ProcessPrefix(req ListRequest) (ListResult, error)
+ }
+ 
+ type Snapshot interface {
+ 	GetByKey(key string) (item interface{}, exists bool, err error)
+ 	OrderedListPrefix(prefix, continueKey string) ([]interface{}, error)
++	ProcessPrefix(req ListRequest) (ListResult, error)
++}
++
++// ElementFilter is a predicate function evaluated on an Element during prefix processing.
++type ElementFilter func(elem *Element) (bool, error)
++
++// ElementConsumer is a callback function called for each matching Element.
++type ElementConsumer func(elem *Element) error
++
++// ListRequest specifies parameters for listing elements from a store or snapshot.
++type ListRequest struct {
++	Prefix            string
++	ContinueKey       string
++	Limit             int64
++	Filter            ElementFilter
++	Consume           ElementConsumer
++	ComputeTotalCount bool
++}
++
++// ListResult holds the result of a ListRequest processing operation.
++type ListResult struct {
++	NumFetched            int
++	NumMatched            int
++	HasMore               bool
++	LastSelectedObjectKey string
++	TotalCount            int64
+ }
+ 
+ func NewIndexer(indexers *cache.Indexers) Indexer {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree.go
+index c760bf28ea995..02b8c5a24a543 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree.go
+@@ -106,6 +106,12 @@ func (si *threadedStoreIndexer) OrderedListPrefix(prefix, continueKey string) ([
+ 	return si.store.OrderedListPrefix(prefix, continueKey)
+ }
+ 
++func (si *threadedStoreIndexer) ProcessPrefix(req ListRequest) (ListResult, error) {
++	si.lock.RLock()
++	defer si.lock.RUnlock()
++	return si.store.ProcessPrefix(req)
++}
++
+ func (si *threadedStoreIndexer) ListKeys() []string {
+ 	si.lock.RLock()
+ 	defer si.lock.RUnlock()
+@@ -271,6 +277,60 @@ func (s *btreeStore) OrderedListPrefix(prefix, continueKey string) ([]interface{
+ 	return result, nil
+ }
+ 
++func (s *btreeStore) ProcessPrefix(req ListRequest) (ListResult, error) {
++	startKey := req.ContinueKey
++	if startKey == "" {
++		startKey = req.Prefix
++	}
++	var res ListResult
++	var procErr error
++
++	s.tree.AscendGreaterOrEqual(&Element{Key: startKey}, func(item *Element) bool {
++		if !strings.HasPrefix(item.Key, req.Prefix) {
++			return false
++		}
++		res.NumFetched++
++
++		if req.ComputeTotalCount {
++			res.TotalCount++
++		}
++
++		if req.Limit > 0 && int64(res.NumMatched) >= req.Limit {
++			res.HasMore = true
++			if !req.ComputeTotalCount {
++				return false
++			}
++			return true
++		}
++
++		if req.Filter != nil {
++			matches, err := req.Filter(item)
++			if err != nil {
++				procErr = err
++				return false
++			}
++			if !matches {
++				return true
++			}
++		}
++
++		res.NumMatched++
++		res.LastSelectedObjectKey = item.Key
++		if req.Consume != nil {
++			if err := req.Consume(item); err != nil {
++				procErr = err
++				return false
++			}
++		}
++		return true
++	})
++
++	if procErr != nil {
++		return ListResult{}, procErr
++	}
++	return res, nil
++}
++
+ func (s *btreeStore) Count(prefix, continueKey string) (count int) {
+ 	if continueKey == "" {
+ 		continueKey = prefix
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree_test.go
+index 02842584448cd..0f6538051080d 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/store_btree_test.go
+@@ -166,6 +166,9 @@ func (f fakeIndexer) Replace([]interface{}, string) error {
+ 	return nil
+ }
+ func (f fakeIndexer) Count(prefixKey, continueKey string) int { return 0 }
++func (f fakeIndexer) ProcessPrefix(req ListRequest) (ListResult, error) {
++	return ListResult{}, nil
++}
+ 
+ type fakeSnapshotter struct {
+ 	getLessOrEqual func(rv uint64) (Snapshot, bool)
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/watch_cache_storage.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/watch_cache_storage.go
+index 30df3f07329c3..cb1b474224392 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/watch_cache_storage.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/store/watch_cache_storage.go
+@@ -144,6 +144,50 @@ func (o orderedListSnapshot) OrderedListPrefix(prefix, continueKey string) ([]in
+ 	return o.Items, nil
+ }
+ 
++func (o orderedListSnapshot) ProcessPrefix(req ListRequest) (ListResult, error) {
++	var res ListResult
++	for _, item := range o.Items {
++		elem, ok := item.(*Element)
++		if !ok {
++			return ListResult{}, fmt.Errorf("non *Element returned from storage: %v", item)
++		}
++		if len(req.ContinueKey) > 0 && req.ContinueKey >= elem.Key {
++			continue
++		}
++		if !key.HasPathPrefix(elem.Key, req.Prefix) {
++			continue
++		}
++		res.NumFetched++
++		if req.ComputeTotalCount {
++			res.TotalCount++
++		}
++		if req.Limit > 0 && int64(res.NumMatched) >= req.Limit {
++			res.HasMore = true
++			if !req.ComputeTotalCount {
++				break
++			}
++			continue
++		}
++		if req.Filter != nil {
++			matches, err := req.Filter(elem)
++			if err != nil {
++				return ListResult{}, err
++			}
++			if !matches {
++				continue
++			}
++		}
++		res.NumMatched++
++		res.LastSelectedObjectKey = elem.Key
++		if req.Consume != nil {
++			if err := req.Consume(elem); err != nil {
++				return ListResult{}, err
++			}
++		}
++	}
++	return res, nil
++}
++
+ type listSnapshot struct {
+ 	Items []interface{}
+ }
+@@ -179,6 +223,48 @@ func (l listSnapshot) OrderedListPrefix(prefix string, continueKey string) ([]in
+ 	return result, nil
+ }
+ 
++func (l listSnapshot) ProcessPrefix(req ListRequest) (ListResult, error) {
++	items, err := l.OrderedListPrefix(req.Prefix, req.ContinueKey)
++	if err != nil {
++		return ListResult{}, err
++	}
++	var res ListResult
++	for _, item := range items {
++		elem, ok := item.(*Element)
++		if !ok {
++			return ListResult{}, fmt.Errorf("non *Element returned from storage: %v", item)
++		}
++		res.NumFetched++
++		if req.ComputeTotalCount {
++			res.TotalCount++
++		}
++		if req.Limit > 0 && int64(res.NumMatched) >= req.Limit {
++			res.HasMore = true
++			if !req.ComputeTotalCount {
++				break
++			}
++			continue
++		}
++		if req.Filter != nil {
++			matches, err := req.Filter(elem)
++			if err != nil {
++				return ListResult{}, err
++			}
++			if !matches {
++				continue
++			}
++		}
++		res.NumMatched++
++		res.LastSelectedObjectKey = elem.Key
++		if req.Consume != nil {
++			if err := req.Consume(elem); err != nil {
++				return ListResult{}, err
++			}
++		}
++	}
++	return res, nil
++}
++
+ type sortableStoreElements []interface{}
+ 
+ func (s sortableStoreElements) Len() int {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+index 30ddde3471929..2fef80ee2081b 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+@@ -361,14 +361,14 @@ func (w *watchCache) waitUntilFreshLocked(ctx context.Context, consistentReadSup
+ 	return nil
+ }
+ 
+-func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
++func (c *watchCache) WaitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions, req store.ListRequest) (listResp, string, error) {
+ 	if opts.Recursive {
+-		return c.waitUntilFreshAndList(ctx, key, opts)
++		return c.waitUntilFreshAndList(ctx, key, opts, req)
+ 	}
+-	return c.waitUntilFreshAndGetList(ctx, key, opts)
++	return c.waitUntilFreshAndGetList(ctx, key, opts, req)
+ }
+ 
+-func (c *watchCache) waitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (listResp, string, error) {
++func (c *watchCache) waitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions, req store.ListRequest) (listResp, string, error) {
+ 	var listRV uint64
+ 	var err error
+ 	if opts.ResourceVersionMatch == "" && opts.ResourceVersion == "" {
+@@ -388,7 +388,30 @@ func (c *watchCache) waitUntilFreshAndGetList(ctx context.Context, key string, o
+ 		return listResp{}, "", err
+ 	}
+ 	if exists {
+-		return listResp{Items: []interface{}{obj}, ResourceVersion: readResourceVersion}, "", nil
++		elem, ok := obj.(*store.Element)
++		if !ok {
++			return listResp{}, "", fmt.Errorf("non *store.Element returned from storage: %v", obj)
++		}
++		var res store.ListResult
++		res.NumFetched = 1
++		res.TotalCount = 1
++		matches := true
++		if req.Filter != nil {
++			matches, err = req.Filter(elem)
++			if err != nil {
++				return listResp{}, "", err
++			}
++		}
++		if matches {
++			res.NumMatched = 1
++			res.LastSelectedObjectKey = elem.Key
++			if req.Consume != nil {
++				if err := req.Consume(elem); err != nil {
++					return listResp{}, "", err
++				}
++			}
++		}
++		return listResp{Result: res, ResourceVersion: readResourceVersion}, "", nil
+ 	}
+ 	return listResp{ResourceVersion: readResourceVersion}, "", nil
+ }
+@@ -413,14 +436,14 @@ func (w *watchCache) WaitUntilFreshAndGetKeys(ctx context.Context, resourceVersi
+ 
+ // NOTICE: Structure follows the shouldDelegateList function in
+ // staging/src/k8s.io/apiserver/pkg/storage/cacher/delegator.go
+-func (w *watchCache) waitUntilFreshAndList(ctx context.Context, key string, opts storage.ListOptions) (resp listResp, index string, err error) {
++func (w *watchCache) waitUntilFreshAndList(ctx context.Context, key string, opts storage.ListOptions, req store.ListRequest) (resp listResp, index string, err error) {
+ 	listRV, err := w.config.versioner.ParseResourceVersion(opts.ResourceVersion)
+ 	if err != nil {
+ 		return listResp{}, "", err
+ 	}
+ 	switch opts.ResourceVersionMatch {
+ 	case metav1.ResourceVersionMatchExact:
+-		return w.waitAndListExactRV(ctx, key, "", listRV)
++		return w.waitAndListExactRV(ctx, key, req, listRV)
+ 	case metav1.ResourceVersionMatchNotOlderThan:
+ 	case "":
+ 		// Continue
+@@ -429,32 +452,33 @@ func (w *watchCache) waitUntilFreshAndList(ctx context.Context, key string, opts
+ 			if err != nil {
+ 				return listResp{}, "", errors.NewBadRequest(fmt.Sprintf("invalid continue token: %v", err))
+ 			}
++			req.ContinueKey = continueKey
+ 			if continueRV > 0 {
+-				return w.waitAndListExactRV(ctx, key, continueKey, uint64(continueRV))
++				return w.waitAndListExactRV(ctx, key, req, uint64(continueRV))
+ 			} else {
+ 				// Don't pass matchValues as they don't support continueKey
+-				return w.waitAndListConsistent(ctx, key, continueKey, nil)
++				return w.waitAndListConsistent(ctx, key, req, nil)
+ 			}
+ 		}
+ 		// Legacy exact match
+ 		if opts.Predicate.Limit > 0 && len(opts.ResourceVersion) > 0 && opts.ResourceVersion != "0" {
+-			return w.waitAndListExactRV(ctx, key, "", listRV)
++			return w.waitAndListExactRV(ctx, key, req, listRV)
+ 		}
+ 		if opts.ResourceVersion == "" {
+-			return w.waitAndListConsistent(ctx, key, "", opts.Predicate.MatcherIndex(ctx))
++			return w.waitAndListConsistent(ctx, key, req, opts.Predicate.MatcherIndex(ctx))
+ 		}
+ 	}
+-	return w.waitAndListLatestRV(ctx, listRV, key, "", opts.Predicate.MatcherIndex(ctx))
++	return w.waitAndListLatestRV(ctx, listRV, key, req, opts.Predicate.MatcherIndex(ctx))
+ }
+ 
+-func (w *watchCache) waitAndListExactRV(ctx context.Context, key, continueKey string, resourceVersion uint64) (resp listResp, index string, err error) {
+-	store, err := w.waitAndGetExactSnapshot(ctx, resourceVersion)
++func (w *watchCache) waitAndListExactRV(ctx context.Context, key string, req store.ListRequest, resourceVersion uint64) (resp listResp, index string, err error) {
++	snap, err := w.waitAndGetExactSnapshot(ctx, resourceVersion)
+ 	if err != nil {
+ 		return listResp{}, "", err
+ 	}
+-	items, err := store.OrderedListPrefix(key, continueKey)
++	res, err := snap.ProcessPrefix(req)
+ 	return listResp{
+-		Items:           items,
++		Result:          res,
+ 		ResourceVersion: resourceVersion,
+ 	}, "", err
+ }
+@@ -480,27 +504,27 @@ func (w *watchCache) waitAndGetExactSnapshot(ctx context.Context, resourceVersio
+ 	return store, nil
+ }
+ 
+-func (w *watchCache) waitAndListConsistent(ctx context.Context, key, continueKey string, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
++func (w *watchCache) waitAndListConsistent(ctx context.Context, key string, req store.ListRequest, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
+ 	span := tracing.SpanFromContext(ctx)
+ 	resourceVersion, err := w.config.getCurrentRV(ctx)
+ 	if err != nil {
+ 		return listResp{}, "", err
+ 	}
+ 	span.AddEvent("getCurrentRV success")
+-	return w.waitAndListLatestRV(ctx, resourceVersion, key, continueKey, matchValues)
++	return w.waitAndListLatestRV(ctx, resourceVersion, key, req, matchValues)
+ }
+ 
+-func (w *watchCache) waitAndListLatestRV(ctx context.Context, minResourceVersion uint64, key, continueKey string, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
+-	snap, resourceVersion, index, err := w.waitAndGetLatestSnapshot(ctx, minResourceVersion, key, continueKey, matchValues)
++func (w *watchCache) waitAndListLatestRV(ctx context.Context, minResourceVersion uint64, key string, req store.ListRequest, matchValues []storage.MatchValue) (resp listResp, index string, err error) {
++	snap, resourceVersion, index, err := w.waitAndGetLatestSnapshot(ctx, minResourceVersion, key, req.ContinueKey, matchValues)
+ 	if err != nil {
+ 		return listResp{}, "", err
+ 	}
+-	items, err := snap.OrderedListPrefix(key, continueKey)
++	res, err := snap.ProcessPrefix(req)
+ 	if err != nil {
+ 		return listResp{}, "", err
+ 	}
+ 	return listResp{
+-		Items:           items,
++		Result:          res,
+ 		ResourceVersion: resourceVersion,
+ 	}, index, nil
+ }
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
+index e0ab4f69d393c..77b410ee67858 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
+@@ -542,6 +542,11 @@ func (s *countingSnapshot) OrderedListPrefix(_, _ string) ([]interface{}, error)
+ 	return s.items, nil
+ }
+ 
++func (s *countingSnapshot) ProcessPrefix(req store.ListRequest) (store.ListResult, error) {
++	s.orderedListPrefixCalls++
++	return store.ListResult{}, nil
++}
++
+ // TestLazySnapshotCacheIntervalSourceEmpty checks that on an empty snapshot Next() returns
+ // no events, and that repeated calls still read the snapshot only once.
+ func TestLazySnapshotCacheIntervalSourceEmpty(t *testing.T) {
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+index a0f820d95afde..46e3224da8b3c 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+@@ -112,6 +112,18 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
+ 	return w.getAllEventsSinceLocked(resourceVersion, "", opts)
+ }
+ 
++func (w *testWatchCache) waitUntilFreshAndGetList(ctx context.Context, key string, opts storage.ListOptions) (resp listResp, items []interface{}, index string, err error) {
++	req := store.ListRequest{
++		Prefix: key,
++		Consume: func(elem *store.Element) error {
++			items = append(items, elem)
++			return nil
++		},
++	}
++	resp, index, err = w.WaitUntilFreshAndGetList(ctx, key, opts, req)
++	return resp, items, index, err
++}
++
+ // newTestWatchCache just adds a fake clock.
+ func newTestWatchCache(capacity int, eventFreshDuration time.Duration, indexers *cache.Indexers) *testWatchCache {
+ 	keyFunc := func(obj runtime.Object) (string, error) {
+@@ -471,14 +483,14 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	}()
+ 
+ 	// list by empty MatchValues.
+-	resp, indexUsed, err := store.WaitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.Everything})
++	resp, items, indexUsed, err := store.waitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.Everything})
+ 	if err != nil {
+ 		t.Fatalf("unexpected error: %v", err)
+ 	}
+ 	if resp.ResourceVersion != 5 {
+ 		t.Errorf("unexpected resourceVersion: %v, expected: 5", resp.ResourceVersion)
+ 	}
+-	if len(resp.Items) != 3 {
++	if len(items) != 3 {
+ 		t.Errorf("unexpected list returned: %#v", resp)
+ 	}
+ 	if indexUsed != "" {
+@@ -486,7 +498,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	}
+ 
+ 	// list by label index.
+-	resp, indexUsed, err = store.WaitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
++	resp, items, indexUsed, err = store.waitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
+ 		Label: labels.SelectorFromSet(map[string]string{
+ 			"label": "value1",
+ 		}),
+@@ -501,7 +513,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	if resp.ResourceVersion != 5 {
+ 		t.Errorf("unexpected resourceVersion: %v, expected: 5", resp.ResourceVersion)
+ 	}
+-	if len(resp.Items) != 2 {
++	if len(items) != 2 {
+ 		t.Errorf("unexpected list returned: %#v", resp)
+ 	}
+ 	if indexUsed != "l:label" {
+@@ -509,7 +521,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	}
+ 
+ 	// list with spec.nodeName index.
+-	resp, indexUsed, err = store.WaitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
++	resp, items, indexUsed, err = store.waitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
+ 		Label: labels.SelectorFromSet(map[string]string{
+ 			"not-exist-label": "whatever",
+ 		}),
+@@ -524,7 +536,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	if resp.ResourceVersion != 5 {
+ 		t.Errorf("unexpected resourceVersion: %v, expected: 5", resp.ResourceVersion)
+ 	}
+-	if len(resp.Items) != 1 {
++	if len(items) != 1 {
+ 		t.Errorf("unexpected list returned: %#v", resp)
+ 	}
+ 	if indexUsed != "f:spec.nodeName" {
+@@ -532,7 +544,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	}
+ 
+ 	// list with index not exists.
+-	resp, indexUsed, err = store.WaitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
++	resp, items, indexUsed, err = store.waitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "5", Recursive: true, Predicate: storage.SelectionPredicate{
+ 		Label: labels.SelectorFromSet(map[string]string{
+ 			"not-exist-label": "whatever",
+ 		}),
+@@ -545,7 +557,7 @@ func TestWaitUntilFreshAndGetList(t *testing.T) {
+ 	if resp.ResourceVersion != 5 {
+ 		t.Errorf("unexpected resourceVersion: %v, expected: 5", resp.ResourceVersion)
+ 	}
+-	if len(resp.Items) != 3 {
++	if len(items) != 3 {
+ 		t.Errorf("unexpected list returned: %#v", resp)
+ 	}
+ 	if indexUsed != "" {
+@@ -565,14 +577,14 @@ func TestWaitUntilFreshAndListFromCache(t *testing.T) {
+ 	}()
+ 
+ 	// list from future revision. Requires watch cache to request bookmark to get it.
+-	resp, indexUsed, err := store.WaitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "3", Recursive: true, Predicate: storage.Everything})
++	resp, items, indexUsed, err := store.waitUntilFreshAndGetList(ctx, "/prefix/", storage.ListOptions{ResourceVersion: "3", Recursive: true, Predicate: storage.Everything})
+ 	if err != nil {
+ 		t.Fatalf("unexpected error: %v", err)
+ 	}
+ 	if resp.ResourceVersion != 3 {
+ 		t.Errorf("unexpected resourceVersion: %v, expected: 6", resp.ResourceVersion)
+ 	}
+-	if len(resp.Items) != 1 {
++	if len(items) != 1 {
+ 		t.Errorf("unexpected list returned: %#v", resp)
+ 	}
+ 	if indexUsed != "" {
+@@ -629,7 +641,7 @@ func TestWaitUntilFreshAndListTimeout(t *testing.T) {
+ 		store.Add(makeTestPod("bar", 4))
+ 	}()
+ 
+-	_, _, err := store.WaitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "4", Predicate: storage.Everything})
++	_, _, _, err := store.waitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "4", Predicate: storage.Everything})
+ 	if !errors.IsTimeout(err) {
+ 		t.Errorf("expected timeout error but got: %v", err)
+ 	}
+@@ -656,7 +668,7 @@ func TestReflectorForWatchCache(t *testing.T) {
+ 	defer store.Stop()
+ 
+ 	{
+-		resp, _, err := store.WaitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "", Recursive: true, Predicate: storage.Everything})
++		resp, _, _, err := store.waitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "", Recursive: true, Predicate: storage.Everything})
+ 		if err != nil {
+ 			t.Fatalf("unexpected error: %v", err)
+ 		}
+@@ -679,7 +691,7 @@ func TestReflectorForWatchCache(t *testing.T) {
+ 	r.ListAndWatch(wait.NeverStop)
+ 
+ 	{
+-		resp, _, err := store.WaitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "10", Recursive: true, Predicate: storage.Everything})
++		resp, _, _, err := store.waitUntilFreshAndGetList(ctx, "", storage.ListOptions{ResourceVersion: "10", Recursive: true, Predicate: storage.Everything})
+ 		if err != nil {
+ 			t.Fatalf("unexpected error: %v", err)
+ 		}
+@@ -1388,14 +1400,14 @@ func testWatchCacheSnapshotConcurrency(t *testing.T, s *testWatchCache, resource
+ 			opts.ResourceVersion = strconv.FormatUint(targetRV, 10)
+ 		}
+ 
+-		resp, _, err := s.WaitUntilFreshAndGetList(ctx, "/prefix/", opts)
++		resp, items, _, err := s.waitUntilFreshAndGetList(ctx, "/prefix/", opts)
+ 		require.NoError(t, err)
+ 
+ 		if expectExactResourceVersion && resp.ResourceVersion != targetRV {
+ 			t.Errorf("Expected list ResourceVersion %d, got %d", targetRV, resp.ResourceVersion)
+ 		}
+ 		if expectItemRVLessOrEqualListRV {
+-			maxItemRV := getMaxItemRV(t, s.config.versioner, resp.Items)
++			maxItemRV := getMaxItemRV(t, s.config.versioner, items)
+ 			if maxItemRV > resp.ResourceVersion {
+ 				t.Errorf("Violated consistency: max item resource version %d is greater than list resource version %d", maxItemRV, resp.ResourceVersion)
+ 			}

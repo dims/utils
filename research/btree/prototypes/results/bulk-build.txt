@@ -1,0 +1,42 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/bulk
+cpu: Apple M4 Pro
+BenchmarkBuildUnchecked/n=100000-14         	    3792	    298970 ns/op	 1233108 B/op	    8892 allocs/op
+BenchmarkBuildUnchecked/n=100000-14         	    4080	    300598 ns/op	 1233104 B/op	    8892 allocs/op
+BenchmarkBuildUnchecked/n=100000-14         	    3930	    300171 ns/op	 1233105 B/op	    8892 allocs/op
+BenchmarkBuildUnchecked/n=1000000-14        	     442	   2644887 ns/op	12180488 B/op	   88788 allocs/op
+BenchmarkBuildUnchecked/n=1000000-14        	     447	   2645290 ns/op	12180488 B/op	   88788 allocs/op
+BenchmarkBuildUnchecked/n=1000000-14        	     445	   2667119 ns/op	12180488 B/op	   88788 allocs/op
+BenchmarkBuild/ordercheck/100k-14           	    2445	    485746 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/ordercheck/100k-14           	    2379	    487368 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/ordercheck/100k-14           	    2443	    503892 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/insert/100k/degree=16-14     	      91	  12018337 ns/op	 3146177 B/op	   20853 allocs/op
+BenchmarkBuild/insert/100k/degree=16-14     	     100	  12045092 ns/op	 3146177 B/op	   20853 allocs/op
+BenchmarkBuild/insert/100k/degree=16-14     	     100	  11847312 ns/op	 3146176 B/op	   20853 allocs/op
+BenchmarkBuild/bulk/100k/degree=16-14       	    1428	    828047 ns/op	 1233136 B/op	    8893 allocs/op
+BenchmarkBuild/bulk/100k/degree=16-14       	    1416	    866692 ns/op	 1233136 B/op	    8893 allocs/op
+BenchmarkBuild/bulk/100k/degree=16-14       	    1293	    842798 ns/op	 1233136 B/op	    8893 allocs/op
+BenchmarkBuild/insert/100k/degree=32-14     	      98	  11373179 ns/op	 2760672 B/op	    9905 allocs/op
+BenchmarkBuild/insert/100k/degree=32-14     	     100	  10935319 ns/op	 2760674 B/op	    9905 allocs/op
+BenchmarkBuild/insert/100k/degree=32-14     	     100	  10822786 ns/op	 2760673 B/op	    9905 allocs/op
+BenchmarkBuild/bulk/100k/degree=32-14       	    1664	    723894 ns/op	 1008912 B/op	    4311 allocs/op
+BenchmarkBuild/bulk/100k/degree=32-14       	    1636	    725652 ns/op	 1008912 B/op	    4311 allocs/op
+BenchmarkBuild/bulk/100k/degree=32-14       	    1668	    733548 ns/op	 1008912 B/op	    4311 allocs/op
+BenchmarkBuild/ordercheck/1M-14             	     228	   5196391 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/ordercheck/1M-14             	     228	   5204217 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/ordercheck/1M-14             	     226	   5329147 ns/op	       0 B/op	       0 allocs/op
+BenchmarkBuild/insert/1M/degree=16-14       	       7	 144656982 ns/op	31466728 B/op	  208363 allocs/op
+BenchmarkBuild/insert/1M/degree=16-14       	       7	 144769137 ns/op	31466728 B/op	  208363 allocs/op
+BenchmarkBuild/insert/1M/degree=16-14       	       7	 145757893 ns/op	31466728 B/op	  208363 allocs/op
+BenchmarkBuild/bulk/1M/degree=16-14         	     138	   8644755 ns/op	12180520 B/op	   88789 allocs/op
+BenchmarkBuild/bulk/1M/degree=16-14         	     139	   8567656 ns/op	12180520 B/op	   88789 allocs/op
+BenchmarkBuild/bulk/1M/degree=16-14         	     138	   8611453 ns/op	12180520 B/op	   88789 allocs/op
+BenchmarkBuild/insert/1M/degree=32-14       	       8	 138886276 ns/op	27611712 B/op	   98818 allocs/op
+BenchmarkBuild/insert/1M/degree=32-14       	       8	 129724562 ns/op	27611712 B/op	   98818 allocs/op
+BenchmarkBuild/insert/1M/degree=32-14       	       8	 130176375 ns/op	27611712 B/op	   98818 allocs/op
+BenchmarkBuild/bulk/1M/degree=32-14         	     157	   7565408 ns/op	10056208 B/op	   43016 allocs/op
+BenchmarkBuild/bulk/1M/degree=32-14         	     156	   7575852 ns/op	10056208 B/op	   43016 allocs/op
+BenchmarkBuild/bulk/1M/degree=32-14         	     157	   7578869 ns/op	10056208 B/op	   43016 allocs/op
+PASS
+ok  	btreeproto/bulk	52.626s

@@ -1,0 +1,14 @@
+goos: darwin
+goarch: arm64
+pkg: expbase
+cpu: Apple M4 Pro
+BenchmarkStringKeyGet/degree=16-14         	 3321630	       360.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14         	 3327520	       363.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14         	 3295695	       362.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14         	 3319741	       360.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14         	 3329677	       358.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14         	 3407707	       349.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14         	 3391233	       346.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14         	 3370123	       355.1 ns/op	      48 B/op	       1 allocs/op
+PASS
+ok  	expbase	12.733s

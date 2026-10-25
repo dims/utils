@@ -1,0 +1,8 @@
+goos: darwin
+goarch: arm64
+pkg: go.etcd.io/etcd/cache/v3
+cpu: Apple M4 Pro
+BenchmarkAuditApplyPut/n=100000-14         	  100000	      1213 ns/op	    2908 B/op	      16 allocs/op
+BenchmarkAuditApplyPut/n=1000000-14        	  100000	      1932 ns/op	    3460 B/op	      16 allocs/op
+PASS
+ok  	go.etcd.io/etcd/cache/v3	1.517s

@@ -1,0 +1,22 @@
+BenchmarkAuditCountRevisions/n=100000-14     	     225	   4900609 ns/op
+BenchmarkAuditCountRevisions/n=1000000-14    	      13	 129965234 ns/op
+BenchmarkAuditRangeKeysOnly/n=100000-14      	     158	   7670823 ns/op
+BenchmarkAuditRangeKeysOnly/n=1000000-14     	       9	 148645685 ns/op
+BenchmarkAuditRevisionsLimit500Total/n=100000-14         	     548	   2135466 ns/op
+BenchmarkAuditRevisionsLimit500Total/n=1000000-14        	      14	 110608321 ns/op
+BenchmarkAuditRevisionsLimit500NoTotal/n=100000-14       	  137340	      8009 ns/op
+BenchmarkAuditRevisionsLimit500NoTotal/n=1000000-14      	  134568	      8211 ns/op
+BenchmarkAuditWalkCurrent/n=100000-14                    	    1407	    809975 ns/op
+BenchmarkAuditWalkCurrent/n=1000000-14                   	      49	  40602327 ns/op
+BenchmarkAuditWalkAscendRange/n=100000-14                	    1309	    867715 ns/op
+BenchmarkAuditWalkAscendRange/n=1000000-14               	      49	  47793358 ns/op
+BenchmarkAuditWalkAscendGE/n=100000-14                   	    3344	    354181 ns/op
+BenchmarkAuditWalkAscendGE/n=1000000-14                  	      96	  19516688 ns/op
+BenchmarkAuditKeyIndexGet/n=100000-14                    	    1297	    908596 ns/op
+BenchmarkAuditKeyIndexGet/n=1000000-14                   	      32	  73870951 ns/op
+BenchmarkAuditKeyIndexGetFast/n=100000-14                	    2224	    486332 ns/op
+BenchmarkAuditKeyIndexGetFast/n=1000000-14               	      57	  39074095 ns/op
+BenchmarkAuditKeyIndexTouch/n=100000-14                  	   14319	     83547 ns/op
+BenchmarkAuditKeyIndexTouch/n=1000000-14                 	     228	   5636303 ns/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	37.588s

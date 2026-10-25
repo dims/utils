@@ -1,0 +1,120 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/find
+cpu: Apple M4 Pro
+BenchmarkInsert-14                       	10656992	       105.6 ns/op
+BenchmarkInsert-14                       	11254572	       106.1 ns/op
+BenchmarkInsert-14                       	11269575	       105.4 ns/op
+BenchmarkSeek-14                         	14263152	        85.01 ns/op
+BenchmarkSeek-14                         	14042176	        84.90 ns/op
+BenchmarkSeek-14                         	14284480	        84.86 ns/op
+BenchmarkDeleteInsert-14                 	 5012180	       237.2 ns/op
+BenchmarkDeleteInsert-14                 	 5002815	       238.3 ns/op
+BenchmarkDeleteInsert-14                 	 4823154	       240.4 ns/op
+BenchmarkDeleteInsertCloneOnce-14        	 4996935	       238.8 ns/op
+BenchmarkDeleteInsertCloneOnce-14        	 5012688	       237.5 ns/op
+BenchmarkDeleteInsertCloneOnce-14        	 5004710	       243.4 ns/op
+BenchmarkDeleteInsertCloneEachTime-14    	 2143000	       554.9 ns/op
+BenchmarkDeleteInsertCloneEachTime-14    	 2129569	       547.0 ns/op
+BenchmarkDeleteInsertCloneEachTime-14    	 2147596	       549.4 ns/op
+BenchmarkDelete-14                       	 9863564	       124.1 ns/op
+BenchmarkDelete-14                       	 9846537	       122.1 ns/op
+BenchmarkDelete-14                       	 9999277	       120.9 ns/op
+BenchmarkGet-14                          	11381134	       105.6 ns/op
+BenchmarkGet-14                          	11527290	       100.2 ns/op
+BenchmarkGet-14                          	11571501	       102.2 ns/op
+BenchmarkGetCloneEachTime-14             	 9284547	       127.9 ns/op
+BenchmarkGetCloneEachTime-14             	 9437210	       126.7 ns/op
+BenchmarkGetCloneEachTime-14             	 9511206	       127.0 ns/op
+BenchmarkAscend-14                       	   38080	     31508 ns/op
+BenchmarkAscend-14                       	   38365	     31472 ns/op
+BenchmarkAscend-14                       	   38253	     31478 ns/op
+BenchmarkDescend-14                      	   39802	     30030 ns/op
+BenchmarkDescend-14                      	   39969	     29991 ns/op
+BenchmarkDescend-14                      	   39872	     30014 ns/op
+BenchmarkAscendRange-14                  	   38490	     31179 ns/op
+BenchmarkAscendRange-14                  	   38802	     31269 ns/op
+BenchmarkAscendRange-14                  	   38364	     31173 ns/op
+BenchmarkDescendRange-14                 	   24326	     49221 ns/op
+BenchmarkDescendRange-14                 	   24454	     48906 ns/op
+BenchmarkDescendRange-14                 	   24543	     49038 ns/op
+BenchmarkAscendGreaterOrEqual-14         	   36141	     32951 ns/op
+BenchmarkAscendGreaterOrEqual-14         	   35971	     33148 ns/op
+BenchmarkAscendGreaterOrEqual-14         	   36283	     33050 ns/op
+BenchmarkDescendLessOrEqual-14           	   23958	     50286 ns/op
+BenchmarkDescendLessOrEqual-14           	   23750	     50235 ns/op
+BenchmarkDescendLessOrEqual-14           	   23900	     50080 ns/op
+BenchmarkDeleteAndRestore/CopyBigFreeList-14         	     421	   2817019 ns/op	  141441 B/op	      11 allocs/op
+BenchmarkDeleteAndRestore/CopyBigFreeList-14         	     424	   2795307 ns/op	  141438 B/op	      11 allocs/op
+BenchmarkDeleteAndRestore/CopyBigFreeList-14         	     424	   2795034 ns/op	  141438 B/op	      11 allocs/op
+BenchmarkDeleteAndRestore/Copy-14                    	     415	   2845970 ns/op	  451753 B/op	    1158 allocs/op
+BenchmarkDeleteAndRestore/Copy-14                    	     415	   2843323 ns/op	  451753 B/op	    1158 allocs/op
+BenchmarkDeleteAndRestore/Copy-14                    	     420	   2844240 ns/op	  451754 B/op	    1158 allocs/op
+BenchmarkDeleteAndRestore/ClearBigFreelist-14        	     646	   1832411 ns/op	     414 B/op	       1 allocs/op
+BenchmarkDeleteAndRestore/ClearBigFreelist-14        	     646	   1856425 ns/op	     414 B/op	       1 allocs/op
+BenchmarkDeleteAndRestore/ClearBigFreelist-14        	     637	   1829186 ns/op	     420 B/op	       1 allocs/op
+BenchmarkDeleteAndRestore/Clear-14                   	     633	   1871265 ns/op	  286554 B/op	    1049 allocs/op
+BenchmarkDeleteAndRestore/Clear-14                   	     639	   1861576 ns/op	  286554 B/op	    1049 allocs/op
+BenchmarkDeleteAndRestore/Clear-14                   	     640	   1852118 ns/op	  286553 B/op	    1049 allocs/op
+BenchmarkLookupString/Get-probe-alloc/100k-14        	 3204346	       387.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-alloc/100k-14        	 3099169	       355.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-alloc/100k-14        	 3383550	       356.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-reused/100k-14       	 3572239	       335.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Get-probe-reused/100k-14       	 3575934	       336.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Get-probe-reused/100k-14       	 3577231	       333.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/100k-14                   	 3437298	       327.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/100k-14                   	 3658808	       333.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/100k-14                   	 3616740	       334.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/100k-14             	 3912792	       299.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/100k-14             	 4026249	       302.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/100k-14             	 4028937	       302.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/100k-14                	 3705271	       326.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/100k-14                	 3715707	       337.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/100k-14                	 3588496	       340.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Get-probe-alloc/1M-14          	 1000000	      1497 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-alloc/1M-14          	 1000000	      1565 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-alloc/1M-14          	 1000000	      1562 ns/op	      48 B/op	       1 allocs/op
+BenchmarkLookupString/Get-probe-reused/1M-14         	 1000000	      1562 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Get-probe-reused/1M-14         	 1000000	      1440 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Get-probe-reused/1M-14         	 1000000	      1528 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/1M-14                     	 1000000	      1552 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/1M-14                     	 1000000	      1597 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/Find/1M-14                     	 1000000	      1453 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/1M-14               	 1000000	      1397 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/1M-14               	 1000000	      1353 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/FindBisect/1M-14               	 1000000	      1348 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/1M-14                  	 1000000	      1574 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/1M-14                  	 1000000	      1557 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupString/GetFunc/1M-14                  	 1000000	      1584 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/100k-14         	 3355693	       349.6 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/100k-14         	 3414748	       349.0 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/100k-14         	 3362952	       352.5 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/100k-14        	 3601688	       330.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/100k-14        	 3539878	       337.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/100k-14        	 3615067	       329.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/100k-14                    	 3525608	       325.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/100k-14                    	 3680868	       326.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/100k-14                    	 3418700	       327.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/100k-14              	 4147869	       289.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/100k-14              	 4111879	       287.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/100k-14              	 4136376	       288.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/100k-14                 	 3695990	       319.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/100k-14                 	 3733484	       319.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/100k-14                 	 3720328	       322.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14           	 1000000	      1554 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14           	 1000000	      1585 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14           	 1000000	      1529 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14          	 1000000	      1556 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14          	 1000000	      1525 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14          	 1000000	      1524 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                      	 1000000	      1223 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                      	 1000000	      1043 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                      	 1000000	      1035 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14                	 1000000	      1151 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14                	 1000000	      1352 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14                	 1000000	      1376 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                   	 1000000	      1543 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                   	 1000000	      1562 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                   	 1000000	      1559 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	btreeproto/find	186.471s

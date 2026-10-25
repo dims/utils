@@ -1,0 +1,235 @@
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cache_watcher_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cache_watcher_test.go
+index a4ca0b501d6d1..8d383b543403b 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cache_watcher_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cache_watcher_test.go
+@@ -304,10 +304,7 @@ func TestResourceVersionAfterInitEvents(t *testing.T) {
+ 		}
+ 	}
+ 
+-	wci, err := newCacheIntervalFromStore(numObjects, store, "", false)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
++	wci := newCacheIntervalFromLazySnapshot(numObjects, store.LatestSnapshot())
+ 
+ 	filter := func(_ string, _ labels.Set, _ fields.Set, _ runtime.Object) bool { return true }
+ 	forget := func(_ bool) {}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+index 3cd7f00f24444..91cb3e767da41 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/cacher.go
+@@ -632,7 +632,7 @@ func (c *Cacher) Watch(ctx context.Context, key string, opts storage.ListOptions
+ 	defer c.watchCache.RUnlock()
+ 
+ 	var cacheInterval *watchCacheInterval
+-	cacheInterval, err = c.watchCache.getAllEventsSinceLocked(requiredResourceVersion, key, opts)
++	cacheInterval, err = c.watchCache.getAllEventsSinceLocked(requiredResourceVersion, opts)
+ 	if err != nil {
+ 		// To match the uncached watch implementation, once we have passed authn/authz/admission,
+ 		// and successfully parsed a resource version, other errors must fail with a watch event of type ERROR,
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+index 63f2f466546d0..5e1be51795083 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache.go
+@@ -640,11 +640,9 @@ func (w *watchCache) suggestedWatchChannelSize(indexExists, triggerUsed bool) in
+ // getAllEventsSinceLocked returns a watchCacheInterval that can be used to
+ // retrieve events since a certain resourceVersion. This function assumes to
+ // be called under the watchCache lock.
+-func (w *watchCache) getAllEventsSinceLocked(resourceVersion uint64, key string, opts storage.ListOptions) (*watchCacheInterval, error) {
+-	_, matchesSingle := opts.Predicate.MatchesSingle()
+-	matchesSingle = matchesSingle && !opts.Recursive
++func (w *watchCache) getAllEventsSinceLocked(resourceVersion uint64, opts storage.ListOptions) (*watchCacheInterval, error) {
+ 	if opts.SendInitialEvents != nil && *opts.SendInitialEvents {
+-		return w.getIntervalFromStoreLocked(key, matchesSingle)
++		return newCacheIntervalFromLazySnapshot(w.resourceVersion, w.storage.LatestSnapshot()), nil
+ 	}
+ 
+ 	if resourceVersion == 0 {
+@@ -655,7 +653,7 @@ func (w *watchCache) getAllEventsSinceLocked(resourceVersion uint64, key string,
+ 			// current state and only then start watching from that point.
+ 			//
+ 			// TODO: In v2 api, we should stop returning the current state - #13969.
+-			return w.getIntervalFromStoreLocked(key, matchesSingle)
++			return newCacheIntervalFromLazySnapshot(w.resourceVersion, w.storage.LatestSnapshot()), nil
+ 		}
+ 		// SendInitialEvents = false and resourceVersion = 0
+ 		// means that the request would like to start watching
+@@ -665,15 +663,3 @@ func (w *watchCache) getAllEventsSinceLocked(resourceVersion uint64, key string,
+ 
+ 	return w.history.GetIntervalLocked(resourceVersion, w.storage.ListResourceVersion(), w.RWMutex.RLocker())
+ }
+-
+-// getIntervalFromStoreLocked returns a watchCacheInterval
+-// that covers the entire storage state.
+-// This function assumes to be called under the watchCache lock.
+-func (w *watchCache) getIntervalFromStoreLocked(key string, matchesSingle bool) (*watchCacheInterval, error) {
+-	// When not matching a single key, an immutable snapshot lets us
+-	// defer the O(N) interval build off the watchCache lock.
+-	if !matchesSingle {
+-		return newCacheIntervalFromLazySnapshot(w.resourceVersion, w.storage.LatestSnapshot()), nil
+-	}
+-	return newCacheIntervalFromStore(w.resourceVersion, w.storage, key, matchesSingle)
+-}
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval.go
+index 9465af6c24d48..a8d9a8900ac57 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval.go
+@@ -68,50 +68,6 @@ func newCacheInterval(startIndex, endIndex int, indexer indexerFunc, indexValida
+ 	}
+ }
+ 
+-type intervalStore interface {
+-	GetByKey(key string) (item interface{}, exists bool, err error)
+-	OrderedListPrefix(prefix, continueKey string) ([]interface{}, error)
+-}
+-
+-// newCacheIntervalFromStore is meant to handle the case of rv=0, such that the events
+-// returned by Next() need to be events from a List() done on the underlying store of
+-// the watch cache.
+-// The items returned in the interval will be sorted by Key.
+-func newCacheIntervalFromStore(resourceVersion uint64, s intervalStore, key string, matchesSingle bool) (*watchCacheInterval, error) {
+-	buffer := &watchCacheIntervalBuffer{}
+-	var allItems []interface{}
+-	var err error
+-	if matchesSingle {
+-		item, exists, err := s.GetByKey(key)
+-		if err != nil {
+-			return nil, err
+-		}
+-		if exists {
+-			allItems = append(allItems, item)
+-		}
+-	} else {
+-		allItems, err = s.OrderedListPrefix("", "")
+-		if err != nil {
+-			return nil, err
+-		}
+-	}
+-	buffer.buffer = make([]*watchCacheEvent, len(allItems))
+-	for i, item := range allItems {
+-		elem, ok := item.(*store.Element)
+-		if !ok {
+-			return nil, fmt.Errorf("not a storeElement: %v", elem)
+-		}
+-		buffer.buffer[i] = storeElementToWatchCacheEvent(elem, resourceVersion)
+-		buffer.endIndex++
+-	}
+-	ci := &watchCacheInterval{
+-		source:          &snapshotCacheIntervalSource{buffer: buffer},
+-		resourceVersion: resourceVersion,
+-	}
+-
+-	return ci, nil
+-}
+-
+ // newCacheIntervalFromLazySnapshot builds an interval backed by an immutable store snapshot
+ // Unlike newCacheIntervalFromStore, it captures snapshot reference which takes O(1) under watch-cache RLock
+ // and defers O(N) traversal to first Next() call post lock release
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
+index 9df1c6af4e33b..d0f608ebec418 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_interval_test.go
+@@ -29,11 +29,8 @@ import (
+ 	"k8s.io/apimachinery/pkg/labels"
+ 	"k8s.io/apimachinery/pkg/runtime"
+ 	"k8s.io/apimachinery/pkg/watch"
+-	"k8s.io/apiserver/pkg/features"
+ 	"k8s.io/apiserver/pkg/storage/cacher/store"
+-	utilfeature "k8s.io/apiserver/pkg/util/feature"
+ 	"k8s.io/client-go/tools/cache"
+-	featuregatetesting "k8s.io/component-base/featuregate/testing"
+ )
+ 
+ func intervalFromEvents(events []*watchCacheEvent) *watchCacheInterval {
+@@ -405,10 +402,7 @@ func TestCacheIntervalNextFromStore(t *testing.T) {
+ 		}
+ 	}
+ 
+-	wci, err := newCacheIntervalFromStore(rv, store, "", false)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
++	wci := newCacheIntervalFromLazySnapshot(rv, store.LatestSnapshot())
+ 
+ 	for i := 0; i < numEvents; i++ {
+ 		event, err := wci.Next()
+@@ -461,10 +455,7 @@ func TestCacheIntervalFromStoreSorted(t *testing.T) {
+ 				}
+ 			}
+ 
+-			wci, err := newCacheIntervalFromStore(n, tc.indexer, "", false)
+-			if err != nil {
+-				t.Fatal(err)
+-			}
++			wci := newCacheIntervalFromLazySnapshot(n, tc.indexer.LatestSnapshot())
+ 
+ 			got := make([]string, 0, n)
+ 			for range n {
+@@ -481,54 +472,6 @@ func TestCacheIntervalFromStoreSorted(t *testing.T) {
+ 	}
+ }
+ 
+-// TestCacheIntervalSourceSelection verifies that getIntervalFromStoreLocked builds the
+-// interval from the lazy snapshot source regardless of whether snapshotting is enabled.
+-func TestCacheIntervalSourceSelection(t *testing.T) {
+-	cases := []struct {
+-		name             string
+-		snapshottingOn   bool
+-		wantLazySnapshot bool
+-	}{
+-		{
+-			name:             "snapshotting enabled serves from lazy snapshot",
+-			snapshottingOn:   true,
+-			wantLazySnapshot: true,
+-		},
+-		{
+-			name:             "snapshotting disabled still serves from lazy snapshot",
+-			snapshottingOn:   false,
+-			wantLazySnapshot: true,
+-		},
+-	}
+-	for _, tc := range cases {
+-		t.Run(tc.name, func(t *testing.T) {
+-			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, features.ListFromCacheSnapshot, tc.snapshottingOn)
+-			wc := newTestWatchCache(3, DefaultEventFreshDuration, &cache.Indexers{})
+-			defer wc.Stop()
+-			if err := wc.Add(makeTestPod("pod1", 100)); err != nil {
+-				t.Fatal(err)
+-			}
+-
+-			wc.Lock()
+-			wci, err := wc.getIntervalFromStoreLocked("", false)
+-			wc.Unlock()
+-			if err != nil {
+-				t.Fatalf("unexpected error: %v", err)
+-			}
+-
+-			if tc.wantLazySnapshot {
+-				if _, ok := wci.source.(*lazySnapshotCacheIntervalSource); !ok {
+-					t.Errorf("expected *lazySnapshotCacheIntervalSource, got %T", wci.source)
+-				}
+-			} else {
+-				if _, ok := wci.source.(*snapshotCacheIntervalSource); !ok {
+-					t.Errorf("expected *snapshotCacheIntervalSource, got %T", wci.source)
+-				}
+-			}
+-		})
+-	}
+-}
+-
+ type countingSnapshot struct {
+ 	items                  []interface{}
+ 	orderedListPrefixCalls int
+diff --git a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+index bbb17269007a9..2c33b2d02f9b3 100644
+--- a/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
++++ b/staging/src/k8s.io/apiserver/pkg/storage/cacher/watch_cache_test.go
+@@ -109,7 +109,7 @@ func (w *testWatchCache) getCacheIntervalForEvents(resourceVersion uint64, opts
+ 	w.RLock()
+ 	defer w.RUnlock()
+ 
+-	return w.getAllEventsSinceLocked(resourceVersion, "", opts)
++	return w.getAllEventsSinceLocked(resourceVersion, opts)
+ }
+ 
+ // newTestWatchCache just adds a fake clock.

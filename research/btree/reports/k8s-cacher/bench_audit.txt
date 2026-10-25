@@ -1,0 +1,41 @@
+goos: darwin
+goarch: arm64
+pkg: k8s.io/apiserver/pkg/storage/cacher/store
+cpu: Apple M4 Pro
+BenchmarkAuditGetByKey/n=10000/probe=alloc-14         	 9671672	       125.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditGetByKey/n=10000/probe=reused-14        	10704524	       113.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditGetByKey/n=100000/probe=alloc-14        	 8096851	       136.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditGetByKey/n=100000/probe=reused-14       	 9969916	       120.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods//countPrefix-14         	   20790	     56468 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods//walkAll-14             	   17659	     68070 ns/op	     136 B/op	       4 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods//countThenWalk-14       	    9186	    131406 ns/op	     192 B/op	       5 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods//collectPointers-14     	    9086	    134072 ns/op	  310545 B/op	      23 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods//OrderedListPrefix-14   	    6256	    201433 ns/op	  666017 B/op	      19 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods/ns-0042//countPrefix-14 	 1497321	       748.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods/ns-0042//walkAll-14     	 1335390	       874.4 ns/op	     136 B/op	       4 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods/ns-0042//countThenWalk-14         	  715612	      1656 ns/op	     192 B/op	       5 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods/ns-0042//collectPointers-14       	  823894	      1571 ns/op	    2320 B/op	      13 allocs/op
+BenchmarkAuditList/n=10000/prefix=/registry/pods/ns-0042//OrderedListPrefix-14     	  697846	      1697 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods//countPrefix-14                  	    2028	    625282 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods//walkAll-14                      	    1444	    699571 ns/op	     136 B/op	       4 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods//countThenWalk-14                	     906	   1312988 ns/op	     192 B/op	       5 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods//collectPointers-14              	     926	   1297064 ns/op	 4496665 B/op	      33 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods//OrderedListPrefix-14            	     751	   1640903 ns/op	 8923552 B/op	      29 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods/ns-0042//countPrefix-14          	 1573728	       769.0 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods/ns-0042//walkAll-14              	 1281488	      1081 ns/op	     136 B/op	       4 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods/ns-0042//countThenWalk-14        	  580644	      2220 ns/op	     192 B/op	       5 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods/ns-0042//collectPointers-14      	  696238	      1441 ns/op	    2320 B/op	      13 allocs/op
+BenchmarkAuditList/n=100000/prefix=/registry/pods/ns-0042//OrderedListPrefix-14    	  807679	      1519 ns/op	    4512 B/op	       9 allocs/op
+BenchmarkAuditWrite/snapshotter=false/compactEachEvent=false-14                    	 1529649	       829.3 ns/op	    2177 B/op	      16 allocs/op
+BenchmarkAuditWrite/snapshotter=true/compactEachEvent=false-14                     	 1000000	      1194 ns/op	    2209 B/op	      17 allocs/op
+BenchmarkAuditWrite/snapshotter=true/compactEachEvent=true-14                      	 1328409	       916.8 ns/op	    2193 B/op	      17 allocs/op
+BenchmarkAuditWrite/UpdateResourceVersion-14                                       	24576440	        50.33 ns/op	      80 B/op	       4 allocs/op
+BenchmarkAuditWrite/ReplaceOrInsertOnly-14                                         	 7433844	       158.2 ns/op	      72 B/op	       2 allocs/op
+BenchmarkAuditWrite/ReplaceOrInsertThenClone-14                                    	 1450941	       793.9 ns/op	    2177 B/op	      16 allocs/op
+BenchmarkAuditReplace/storeOnly-14                                                 	      97	  11315490 ns/op	 3145841 B/op	   20849 allocs/op
+BenchmarkAuditReplace/WatchCacheStorage-14                                         	      97	  11634939 ns/op	 3146040 B/op	   20856 allocs/op
+BenchmarkAuditSnapshotter/GetSnapshot-14                                           	16268906	        70.68 ns/op	      32 B/op	       2 allocs/op
+BenchmarkAuditSnapshotter/OldestResourceVersion-14                                 	673526976	         1.767 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	k8s.io/apiserver/pkg/storage/cacher/store	51.370s
+exit=0

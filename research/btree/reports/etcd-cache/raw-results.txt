@@ -1,0 +1,20 @@
+Raw outputs that the first tee missed (directory did not exist yet). Other runs are in the *.txt files beside this one.
+
+TestAuditRetained (released fork):
+sizeof KeyValue=120 kvItem=24 snapshot=16
+n=100000: base=35.1MB fullRing=41.3MB (+6.22MB, 3037 B/snapshot), after 2048 more: 40.5MB (delta -0.78MB)
+n=1000000: base=340.3MB fullRing=347.6MB (+7.35MB, 3589 B/snapshot), after 2048 more: 339.7MB (delta -7.97MB)
+
+BenchmarkAuditGetSingle (released fork, first run):
+store.Get/n=100000             505.8 ns/op   80 B/op  3 allocs/op
+snapshot.Range/n=100000        628.0 ns/op   80 B/op  3 allocs/op
+tree.Get-allocProbe/n=100000   577.7 ns/op   72 B/op  2 allocs/op
+tree.Get-reusedProbe/n=100000  564.5 ns/op    0 B/op  0 allocs/op
+getSnapshot-only/n=100000        7.7 ns/op    0 B/op  0 allocs/op
+store.Get/n=1000000           1237 ns/op     80 B/op  3 allocs/op
+snapshot.Range/n=1000000      1251 ns/op     80 B/op  3 allocs/op
+tree.Get-allocProbe/n=1000000 1207 ns/op     72 B/op  2 allocs/op
+tree.Get-reusedProbe/n=1000000 1326 ns/op     0 B/op  0 allocs/op
+getSnapshot-only/n=1000000       7.5 ns/op    0 B/op  0 allocs/op
+
+Branch measured with: GOWORK=../gowork-branch/go.work (replace k8s.io/utils => worktree btree-benchmarks).

@@ -1,0 +1,438 @@
+diff --git a/pkg/controlplane/apiserver/config.go b/pkg/controlplane/apiserver/config.go
+index 9a23f7dc0c7e0..e13b472ae539c 100644
+--- a/pkg/controlplane/apiserver/config.go
++++ b/pkg/controlplane/apiserver/config.go
+@@ -60,6 +60,7 @@ import (
+ 	"k8s.io/kubernetes/pkg/controlplane/controller/clusterauthenticationtrust"
+ 	"k8s.io/kubernetes/pkg/kubeapiserver"
+ 	"k8s.io/kubernetes/pkg/kubeapiserver/authorizer/modes"
++	"k8s.io/kubernetes/pkg/kubeapiserver/direct"
+ 	rbacrest "k8s.io/kubernetes/pkg/registry/rbac/rest"
+ 	"k8s.io/kubernetes/pkg/serviceaccount"
+ )
+@@ -174,6 +175,9 @@ func BuildGenericConfig(
+ 		clientgoinformers.WithTransform(trim),
+ 		clientgoinformers.WithInformerName(informerName),
+ 	)
++	if s.Etcd.EnableWatchCache {
++		versionedInformers = direct.NewSharedInformerFactory(versionedInformers)
++	}
+ 
+ 	if lastErr = s.Features.ApplyTo(genericConfig, clientgoExternalClient, versionedInformers); lastErr != nil {
+ 		return
+diff --git a/pkg/kubeapiserver/direct/client.go b/pkg/kubeapiserver/direct/client.go
+new file mode 100644
+index 0000000000000..9cc519003bfd9
+--- /dev/null
++++ b/pkg/kubeapiserver/direct/client.go
+@@ -0,0 +1,113 @@
++/*
++Copyright The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package direct
++
++import (
++	"context"
++	"fmt"
++
++	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
++	"k8s.io/kubernetes/pkg/api/legacyscheme"
++)
++
++// Storage is the subset of a resource's REST storage that direct listers read from.
++// It is implemented by *genericregistry.Store, which serves reads from the watch cache
++// when the request's resourceVersion is "0".
++type Storage interface {
++	Get(ctx context.Context, name string, options *metav1.GetOptions) (runtime.Object, error)
++	List(ctx context.Context, options *metainternalversion.ListOptions) (runtime.Object, error)
++}
++
++// Client reads objects from a resource's watch cache, converting the internal objects
++// returned by the storage layer into the external version listers hand to their consumers.
++type Client interface {
++	Get(ctx context.Context, namespace, name string, options metav1.GetOptions) (runtime.Object, error)
++	List(ctx context.Context, namespace string, options metav1.ListOptions) (runtime.Object, error)
++}
++
++type storageClient struct {
++	factory *directSharedInformerFactory
++	gvr     schema.GroupVersionResource
++}
++
++var _ Client = &storageClient{}
++
++func (c *storageClient) Get(ctx context.Context, namespace, name string, options metav1.GetOptions) (runtime.Object, error) {
++	storage, err := c.storage()
++	if err != nil {
++		return nil, err
++	}
++	obj, err := storage.Get(c.newContext(ctx, namespace, "get"), name, &options)
++	if err != nil {
++		return nil, err
++	}
++	return c.toExternal(obj)
++}
++
++func (c *storageClient) List(ctx context.Context, namespace string, options metav1.ListOptions) (runtime.Object, error) {
++	storage, err := c.storage()
++	if err != nil {
++		return nil, err
++	}
++	internalOptions := &metainternalversion.ListOptions{}
++	if err := metainternalversion.Convert_v1_ListOptions_To_internalversion_ListOptions(&options, internalOptions, nil); err != nil {
++		return nil, err
++	}
++	obj, err := storage.List(c.newContext(ctx, namespace, "list"), internalOptions)
++	if err != nil {
++		return nil, err
++	}
++	return c.toExternal(obj)
++}
++
++func (c *storageClient) storage() (Storage, error) {
++	storage := c.factory.storageFor(c.gvr.GroupResource())
++	if storage == nil {
++		return nil, fmt.Errorf("watch cache storage for %s is not yet initialized", c.gvr.GroupResource())
++	}
++	return storage, nil
++}
++
++// newContext layers the namespace and request info the storage layer expects onto the
++// caller's context, so cancellation, deadlines and tracing spans of the request that
++// triggered the read still apply to it.
++func (c *storageClient) newContext(ctx context.Context, namespace, verb string) context.Context {
++	ctx = genericapirequest.WithNamespace(ctx, namespace)
++	return genericapirequest.WithRequestInfo(ctx, &genericapirequest.RequestInfo{
++		IsResourceRequest: true,
++		Verb:              verb,
++		APIGroup:          c.gvr.Group,
++		APIVersion:        c.gvr.Version,
++		Resource:          c.gvr.Resource,
++		Namespace:         namespace,
++	})
++}
++
++// toExternal converts the internal object returned by the storage layer to the external
++// version, and clears the kind so objects match what a client-go lister returns.
++func (c *storageClient) toExternal(obj runtime.Object) (runtime.Object, error) {
++	out, err := legacyscheme.Scheme.ConvertToVersion(obj, c.gvr.GroupVersion())
++	if err != nil {
++		return nil, err
++	}
++	out.GetObjectKind().SetGroupVersionKind(schema.GroupVersionKind{})
++	return out, nil
++}
+diff --git a/pkg/kubeapiserver/direct/factory.go b/pkg/kubeapiserver/direct/factory.go
+new file mode 100644
+index 0000000000000..8e9d35891a80a
+--- /dev/null
++++ b/pkg/kubeapiserver/direct/factory.go
+@@ -0,0 +1,138 @@
++/*
++Copyright The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package direct
++
++import (
++	corev1 "k8s.io/api/core/v1"
++	"k8s.io/apimachinery/pkg/runtime"
++	"k8s.io/apimachinery/pkg/runtime/schema"
++	"k8s.io/client-go/informers"
++	coreinformers "k8s.io/client-go/informers/core"
++	corev1informers "k8s.io/client-go/informers/core/v1"
++	corev1listers "k8s.io/client-go/listers/core/v1"
++	"k8s.io/client-go/tools/cache"
++)
++
++var podResource = corev1.Resource("pods")
++
++// NewSharedInformerFactory wraps a SharedInformerFactory so that calling Lister()
++// returns a Lister that reads directly from the watch cache (RV=0) without
++// registering or starting a client-go informer.
++func NewSharedInformerFactory(original informers.SharedInformerFactory) informers.SharedInformerFactory {
++	return &directSharedInformerFactory{
++		SharedInformerFactory: original,
++		storages:              map[schema.GroupResource]Storage{},
++	}
++}
++
++// SetStorage binds the REST storage that listers for gr read from. Listers are handed out
++// before the storage layer is built, so they resolve it lazily on first read.
++func SetStorage(f informers.SharedInformerFactory, gr schema.GroupResource, storage Storage) {
++	if d, ok := f.(*directSharedInformerFactory); ok {
++		d.storages[gr] = storage
++	}
++}
++
++type directSharedInformerFactory struct {
++	informers.SharedInformerFactory
++
++	storages map[schema.GroupResource]Storage
++}
++
++func (f *directSharedInformerFactory) storageFor(gr schema.GroupResource) Storage {
++	return f.storages[gr]
++}
++
++func (f *directSharedInformerFactory) clientFor(gvr schema.GroupVersionResource) Client {
++	return &storageClient{
++		factory: f,
++		gvr:     gvr,
++	}
++}
++
++func (f *directSharedInformerFactory) Core() coreinformers.Interface {
++	return &directCoreInformers{
++		Interface: f.SharedInformerFactory.Core(),
++		factory:   f,
++	}
++}
++
++func (f *directSharedInformerFactory) ForResource(resource schema.GroupVersionResource) (informers.GenericInformer, error) {
++	switch resource.GroupResource() {
++	case podResource:
++		return &directInformer{
++			original: f.SharedInformerFactory,
++			gvr:      resource,
++			lister:   NewLister[runtime.Object](f.clientFor(resource)),
++		}, nil
++	default:
++		return f.SharedInformerFactory.ForResource(resource)
++	}
++}
++
++type directInformer struct {
++	original informers.SharedInformerFactory
++	gvr      schema.GroupVersionResource
++	lister   cache.GenericLister
++}
++
++func (g *directInformer) Informer() cache.SharedIndexInformer {
++	inf, err := g.original.ForResource(g.gvr)
++	if err != nil {
++		return nil
++	}
++	return inf.Informer()
++}
++
++func (g *directInformer) Lister() cache.GenericLister {
++	return g.lister
++}
++
++type directCoreInformers struct {
++	coreinformers.Interface
++	factory *directSharedInformerFactory
++}
++
++func (c *directCoreInformers) V1() corev1informers.Interface {
++	return &directCoreV1Informers{
++		Interface: c.Interface.V1(),
++		factory:   c.factory,
++	}
++}
++
++type directCoreV1Informers struct {
++	corev1informers.Interface
++	factory *directSharedInformerFactory
++}
++
++func (v *directCoreV1Informers) Pods() corev1informers.TypedPodInformer {
++	return &directPodInformer{
++		TypedPodInformer: v.Interface.Pods(),
++		lister:           NewPodLister(v.factory.clientFor(corev1.SchemeGroupVersion.WithResource("pods"))),
++	}
++}
++
++type directPodInformer struct {
++	corev1informers.TypedPodInformer
++	lister corev1listers.PodLister
++}
++
++var _ corev1informers.TypedPodInformer = &directPodInformer{}
++
++func (d *directPodInformer) Lister() corev1listers.PodLister {
++	return d.lister
++}
+diff --git a/pkg/kubeapiserver/direct/lister.go b/pkg/kubeapiserver/direct/lister.go
+new file mode 100644
+index 0000000000000..fd3da9ac65d95
+--- /dev/null
++++ b/pkg/kubeapiserver/direct/lister.go
+@@ -0,0 +1,125 @@
++/*
++Copyright The Kubernetes Authors.
++
++Licensed under the Apache License, Version 2.0 (the "License");
++you may not use this file except in compliance with the License.
++You may obtain a copy of the License at
++
++    http://www.apache.org/licenses/LICENSE-2.0
++
++Unless required by applicable law or agreed to in writing, software
++distributed under the License is distributed on an "AS IS" BASIS,
++WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++See the License for the specific language governing permissions and
++limitations under the License.
++*/
++
++package direct
++
++import (
++	"context"
++	"fmt"
++
++	corev1 "k8s.io/api/core/v1"
++	"k8s.io/apimachinery/pkg/api/meta"
++	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
++	"k8s.io/apimachinery/pkg/labels"
++	"k8s.io/apimachinery/pkg/runtime"
++	corev1listers "k8s.io/client-go/listers/core/v1"
++	"k8s.io/client-go/tools/cache"
++	podsecurityadmission "k8s.io/pod-security-admission/admission"
++)
++
++// Lister is a generic lister backed by a Client (mirroring client-go's listers.ResourceIndexer[T]).
++// It reads directly from the watch cache (RV=0) instead of from an informer's local store.
++type Lister[T runtime.Object] struct {
++	client    Client
++	namespace string
++}
++
++var _ cache.GenericLister = Lister[runtime.Object]{}
++var _ cache.GenericNamespaceLister = Lister[runtime.Object]{}
++
++// NewLister returns a new Lister for type T backed by client.
++func NewLister[T runtime.Object](client Client) Lister[T] {
++	return Lister[T]{client: client}
++}
++
++// Namespaced returns a Lister scoped to the specified namespace.
++func (l Lister[T]) Namespaced(namespace string) Lister[T] {
++	return Lister[T]{client: l.client, namespace: namespace}
++}
++
++// ByNamespace implements cache.GenericLister.
++func (l Lister[T]) ByNamespace(namespace string) cache.GenericNamespaceLister {
++	return Lister[runtime.Object]{client: l.client, namespace: namespace}
++}
++
++// List lists all resources matching selector from the watch cache (RV=0).
++func (l Lister[T]) List(selector labels.Selector) ([]T, error) {
++	return l.ListWithContext(context.Background(), selector)
++}
++
++// ListWithContext lists all resources matching selector from the watch cache (RV=0) using ctx.
++func (l Lister[T]) ListWithContext(ctx context.Context, selector labels.Selector) ([]T, error) {
++	listOptions := metav1.ListOptions{
++		ResourceVersion: "0",
++	}
++	if selector != nil && !selector.Empty() {
++		listOptions.LabelSelector = selector.String()
++	}
++	obj, err := l.client.List(ctx, l.namespace, listOptions)
++	if err != nil {
++		return nil, err
++	}
++	var ret []T
++	err = meta.EachListItem(obj, func(item runtime.Object) error {
++		typed, ok := item.(T)
++		if !ok {
++			return fmt.Errorf("expected %T in list from direct client, got %T", *new(T), item)
++		}
++		ret = append(ret, typed)
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return ret, nil
++}
++
++// Get retrieves the resource with the given name from the watch cache (RV=0).
++func (l Lister[T]) Get(name string) (T, error) {
++	obj, err := l.client.Get(context.Background(), l.namespace, name, metav1.GetOptions{ResourceVersion: "0"})
++	if err != nil {
++		return *new(T), err
++	}
++	typed, ok := obj.(T)
++	if !ok {
++		return *new(T), fmt.Errorf("expected %T from direct client, got %T", *new(T), obj)
++	}
++	return typed, nil
++}
++
++type podLister struct {
++	Lister[*corev1.Pod]
++}
++
++var _ corev1listers.PodLister = &podLister{}
++var _ podsecurityadmission.PodLister = &podLister{}
++
++// NewPodLister returns a PodLister backed by a direct Client (mirroring corev1listers.NewPodLister).
++func NewPodLister(client Client) corev1listers.PodLister {
++	return &podLister{
++		Lister: NewLister[*corev1.Pod](client),
++	}
++}
++
++// Pods returns a PodNamespaceLister for the given namespace.
++func (l *podLister) Pods(namespace string) corev1listers.PodNamespaceLister {
++	return l.Namespaced(namespace)
++}
++
++// ListPods implements podsecurityadmission.PodLister.
++func (l *podLister) ListPods(ctx context.Context, namespace string) ([]*corev1.Pod, error) {
++	return l.Namespaced(namespace).ListWithContext(ctx, labels.Everything())
++}
+diff --git a/pkg/registry/core/rest/storage_core.go b/pkg/registry/core/rest/storage_core.go
+index c91b03e7a29bc..b8bd6c95c67a7 100644
+--- a/pkg/registry/core/rest/storage_core.go
++++ b/pkg/registry/core/rest/storage_core.go
+@@ -43,6 +43,7 @@ import (
+ 	api "k8s.io/kubernetes/pkg/apis/core"
+ 	"k8s.io/kubernetes/pkg/cluster/ports"
+ 	"k8s.io/kubernetes/pkg/features"
++	"k8s.io/kubernetes/pkg/kubeapiserver/direct"
+ 	kubeletclient "k8s.io/kubernetes/pkg/kubelet/client"
+ 	"k8s.io/kubernetes/pkg/registry/core/componentstatus"
+ 	endpointsstore "k8s.io/kubernetes/pkg/registry/core/endpoint/storage"
+@@ -192,6 +193,9 @@ func (p *legacyProvider) NewRESTStorage(apiResourceConfigSource serverstorage.AP
+ 	if err != nil {
+ 		return genericapiserver.APIGroupInfo{}, err
+ 	}
++	// Let listers handed out by the informer factory read pods straight from the watch
++	// cache backing this storage, instead of keeping a second copy in an informer.
++	direct.SetStorage(p.Informers, corev1.Resource("pods"), podStorage.Pod)
+ 
+ 	var primaryClusterIPFamily api.IPFamily
+ 	if netutils.IsIPv4CIDR(&p.Services.ClusterIPRange) {

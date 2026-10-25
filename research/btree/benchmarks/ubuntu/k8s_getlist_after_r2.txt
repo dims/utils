@@ -1,0 +1,21 @@
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=50-24         	   10000	    124256 ns/op	   31648 B/op	      53 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=50-24         	   13048	     92505 ns/op	   31648 B/op	      53 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=50-24         	   12922	     98060 ns/op	   31648 B/op	      53 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=50-24         	   11875	    103692 ns/op	   31648 B/op	      53 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=500-24        	    5208	    198233 ns/op	  274984 B/op	      57 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=500-24        	    6051	    190973 ns/op	  274985 B/op	      57 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=500-24        	    6138	    181728 ns/op	  274984 B/op	      57 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=500-24        	    6572	    186311 ns/op	  274984 B/op	      57 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=1000-24       	    3798	    269178 ns/op	  537128 B/op	      58 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=1000-24       	    4608	    237058 ns/op	  537128 B/op	      58 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=1000-24       	    4794	    242735 ns/op	  537128 B/op	      58 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=1000-24       	    4639	    245902 ns/op	  537128 B/op	      58 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=2500-24       	    3152	    389165 ns/op	 1348137 B/op	      60 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=2500-24       	    3195	    401383 ns/op	 1348136 B/op	      60 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=2500-24       	    3110	    370349 ns/op	 1348136 B/op	      60 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=2500-24       	    2576	    400204 ns/op	 1348136 B/op	      60 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=5000-24       	    1701	    649935 ns/op	 2724393 B/op	      62 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=5000-24       	    1918	    648229 ns/op	 2724393 B/op	      62 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=5000-24       	    1875	    639315 ns/op	 2724393 B/op	      62 allocs/op
+BenchmarkCacher_GetList/totalObjectNum=5000,_expectObjectNum=5000-24       	    1917	    621511 ns/op	 2724393 B/op	      62 allocs/op
+ok  	k8s.io/apiserver/pkg/storage/cacher	36.607s

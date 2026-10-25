@@ -1,0 +1,13 @@
+BenchmarkRange/keys_10000/no_sort_no_limit-24         	     213	   5553430 ns/op	 4530740 B/op	   80038 allocs/op
+BenchmarkRange/keys_10000/no_sort_no_limit-24         	     206	   5587640 ns/op	 4530656 B/op	   80038 allocs/op
+BenchmarkRange/keys_10000/no_sort_no_limit-24         	     216	   5437716 ns/op	 4530604 B/op	   80038 allocs/op
+BenchmarkRange/keys_10000/no_sort_no_limit-24         	     223	   5808409 ns/op	 4530602 B/op	   80038 allocs/op
+BenchmarkRange/keys_10000/no_sort_limit_10-24         	   13356	     91650 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/no_sort_limit_10-24         	   13432	     88363 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/no_sort_limit_10-24         	   12872	     92064 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/no_sort_limit_10-24         	   12925	     93927 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/key_ascend_limit_10-24      	   12943	     93636 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/key_ascend_limit_10-24      	   12897	     93554 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/key_ascend_limit_10-24      	   12810	     91909 ns/op	    6168 B/op	     112 allocs/op
+BenchmarkRange/keys_10000/key_ascend_limit_10-24      	   13365	     90195 ns/op	    6168 B/op	     112 allocs/op
+ok  	go.etcd.io/etcd/server/v3/etcdserver/txn	14.726s

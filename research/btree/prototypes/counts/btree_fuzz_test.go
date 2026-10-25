@@ -1,0 +1,228 @@
+// Copyright 2025 The Kubernetes Authors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package btree
+
+import (
+	"slices"
+	"testing"
+	"unsafe"
+)
+
+// fuzzModel is the reference an ordered set must agree with: a sorted slice
+// of unique keys.
+type fuzzModel struct{ keys []int }
+
+func (m *fuzzModel) insert(k int) (had bool) {
+	i, found := slices.BinarySearch(m.keys, k)
+	if !found {
+		m.keys = slices.Insert(m.keys, i, k)
+	}
+	return found
+}
+
+func (m *fuzzModel) delete(k int) (had bool) {
+	i, found := slices.BinarySearch(m.keys, k)
+	if found {
+		m.keys = slices.Delete(m.keys, i, i+1)
+	}
+	return found
+}
+
+func (m *fuzzModel) has(k int) bool {
+	_, found := slices.BinarySearch(m.keys, k)
+	return found
+}
+
+// countRange counts the model keys in [ge, lt).
+func (m *fuzzModel) countRange(ge, lt int) int {
+	count := 0
+	for _, k := range m.keys {
+		if k >= ge && k < lt {
+			count++
+		}
+	}
+	return count
+}
+
+// filter returns up to limit keys for which keep is true, in ascending or
+// descending order.
+func (m *fuzzModel) filter(keep func(int) bool, descending bool, limit int) []int {
+	var out []int
+	for i := range m.keys {
+		if len(out) >= limit {
+			break
+		}
+		k := m.keys[i]
+		if descending {
+			k = m.keys[len(m.keys)-1-i]
+		}
+		if keep(k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// collectItems runs an iteration and returns the first limit items it yields.
+func collectItems(limit int, iterate func(ItemIterator[int])) []int {
+	var out []int
+	iterate(func(k int) bool {
+		out = append(out, k)
+		return len(out) < limit
+	})
+	return out
+}
+
+// checkCounts verifies that every node's count equals the number of items
+// in its subtree, and that the root's count equals Len.
+func checkCounts(t *testing.T, tr *BTree[int]) {
+	t.Helper()
+	if tr.root == nil {
+		return
+	}
+	var walk func(n *node[int]) int
+	walk = func(n *node[int]) int {
+		count := len(n.items)
+		for _, child := range n.children {
+			count += walk(child)
+		}
+		if count != n.count {
+			t.Fatalf("node count %d, subtree holds %d", n.count, count)
+		}
+		return count
+	}
+	if got := walk(tr.root); got != tr.length {
+		t.Fatalf("root count %d, Len %d", got, tr.length)
+	}
+}
+
+func TestNodeSize(t *testing.T) {
+	t.Logf("node[int] size with count: %d bytes (baseline 56; both use the 64-byte size class)", unsafe.Sizeof(node[int]{}))
+}
+
+// FuzzBTree runs random operations on a tree and on a sorted slice and stops
+// at the first disagreement. Degrees 2 to 5 force frequent splits and
+// merges, and keys 0 to 63 force collisions. Clones are kept and checked
+// at the end, so that writes to the live tree never show in them. The
+// subtree counts are verified after every operation, and CountRange is
+// checked against the model.
+func FuzzBTree(f *testing.F) {
+	f.Add([]byte{1, 0, 5, 0, 7, 3, 5, 2, 7, 8, 9, 1, 4})
+	f.Add([]byte{0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 8, 0, 3, 1, 3, 2, 9, 2, 10, 2, 6, 0, 7, 0})
+	f.Add([]byte{2, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 12, 2, 12, 9, 3, 2, 12, 3, 8, 0, 12, 60})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) < 3 {
+			return
+		}
+		tr := New(2+int(data[0]%4), func(a, b int) bool { return a < b })
+		m := &fuzzModel{}
+		type snapshot struct {
+			tree *BTree[int]
+			keys []int
+		}
+		var snapshots []snapshot
+		check := func(what string, got, want []int) {
+			t.Helper()
+			if !slices.Equal(got, want) {
+				t.Fatalf("%s: got %v want %v", what, got, want)
+			}
+		}
+		for i := 1; i+1 < len(data); i += 2 {
+			op, k := data[i]%13, int(data[i+1]%64)
+			k2, limit := (k*7+3)%64, 1+int(data[i]%5)
+			switch op {
+			case 0, 1, 2:
+				if _, had := tr.ReplaceOrInsert(k); had != m.insert(k) {
+					t.Fatalf("ReplaceOrInsert(%d): had %v", k, had)
+				}
+			case 3, 4:
+				if _, had := tr.Delete(k); had != m.delete(k) {
+					t.Fatalf("Delete(%d): had %v", k, had)
+				}
+			case 5:
+				v, ok := tr.Get(k)
+				if ok != m.has(k) || (ok && v != k) {
+					t.Fatalf("Get(%d): %d %v", k, v, ok)
+				}
+			case 6:
+				v, ok := tr.DeleteMin()
+				if ok != (len(m.keys) > 0) || (ok && v != m.keys[0]) {
+					t.Fatalf("DeleteMin: %d %v, model %v", v, ok, m.keys)
+				}
+				if ok {
+					m.delete(v)
+				}
+			case 7:
+				v, ok := tr.DeleteMax()
+				if ok != (len(m.keys) > 0) || (ok && v != m.keys[len(m.keys)-1]) {
+					t.Fatalf("DeleteMax: %d %v, model %v", v, ok, m.keys)
+				}
+				if ok {
+					m.delete(v)
+				}
+			case 8:
+				snapshots = append(snapshots, snapshot{tr.Clone(), slices.Clone(m.keys)})
+				if len(snapshots) > 4 {
+					snapshots = snapshots[1:]
+				}
+			case 9:
+				check("AscendRange", collectItems(limit, func(f ItemIterator[int]) { tr.AscendRange(k, k2, f) }),
+					m.filter(func(x int) bool { return x >= k && x < k2 }, false, limit))
+				check("AscendLessThan", collectItems(limit, func(f ItemIterator[int]) { tr.AscendLessThan(k, f) }),
+					m.filter(func(x int) bool { return x < k }, false, limit))
+				check("AscendGreaterOrEqual", collectItems(limit, func(f ItemIterator[int]) { tr.AscendGreaterOrEqual(k, f) }),
+					m.filter(func(x int) bool { return x >= k }, false, limit))
+			case 10:
+				check("DescendRange", collectItems(limit, func(f ItemIterator[int]) { tr.DescendRange(k, k2, f) }),
+					m.filter(func(x int) bool { return x <= k && x > k2 }, true, limit))
+				check("DescendLessOrEqual", collectItems(limit, func(f ItemIterator[int]) { tr.DescendLessOrEqual(k, f) }),
+					m.filter(func(x int) bool { return x <= k }, true, limit))
+				check("DescendGreaterThan", collectItems(limit, func(f ItemIterator[int]) { tr.DescendGreaterThan(k, f) }),
+					m.filter(func(x int) bool { return x > k }, true, limit))
+			case 11:
+				lo, okLo := tr.Min()
+				hi, okHi := tr.Max()
+				if okLo != (len(m.keys) > 0) || okHi != okLo || (okLo && (lo != m.keys[0] || hi != m.keys[len(m.keys)-1])) {
+					t.Fatalf("Min/Max: %d %v %d %v, model %v", lo, okLo, hi, okHi, m.keys)
+				}
+			case 12:
+				for _, r := range [][2]int{{k, k2}, {k2, k}, {k, k}, {0, 64}, {k, 64}, {0, k}, {-5, 70}} {
+					if got, want := tr.CountRange(r[0], r[1]), m.countRange(r[0], r[1]); got != want {
+						t.Fatalf("CountRange(%d, %d): got %d want %d, model %v", r[0], r[1], got, want, m.keys)
+					}
+				}
+			}
+			if tr.Len() != len(m.keys) {
+				t.Fatalf("Len: %d want %d", tr.Len(), len(m.keys))
+			}
+			checkCounts(t, tr)
+			if i%8 == 1 {
+				check("Ascend", collectItems(len(m.keys)+1, tr.Ascend), m.keys)
+			}
+		}
+		check("Ascend", collectItems(len(m.keys)+1, tr.Ascend), m.keys)
+		check("Descend", collectItems(len(m.keys)+1, tr.Descend), m.filter(func(int) bool { return true }, true, len(m.keys)+1))
+		for _, s := range snapshots {
+			check("snapshot Ascend", collectItems(len(s.keys)+1, s.tree.Ascend), s.keys)
+			if s.tree.Len() != len(s.keys) {
+				t.Fatalf("snapshot Len: %d want %d", s.tree.Len(), len(s.keys))
+			}
+			checkCounts(t, s.tree)
+			if got, want := s.tree.CountRange(0, 64), len(s.keys); got != want {
+				t.Fatalf("snapshot CountRange: got %d want %d", got, want)
+			}
+		}
+	})
+}

@@ -1,0 +1,6 @@
+BenchmarkAuditRestoreCurrent/n=100000-14 	       2	 105110980 ns/op
+BenchmarkAuditRestoreCurrent/n=1000000-14         	       2	2056240166 ns/op
+BenchmarkAuditRestoreMapThenSorted/n=100000-14    	       2	  47833062 ns/op
+BenchmarkAuditRestoreMapThenSorted/n=1000000-14   	       2	 938695750 ns/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	10.663s

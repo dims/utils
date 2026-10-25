@@ -1,0 +1,36 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/clone
+cpu: Apple M4 Pro
+BenchmarkDeleteInsertCloneOnce-14        	 5108809	       232.6 ns/op
+BenchmarkDeleteInsertCloneOnce-14        	 5068717	       232.6 ns/op
+BenchmarkDeleteInsertCloneEachTime-14    	 1758583	       694.6 ns/op
+BenchmarkDeleteInsertCloneEachTime-14    	 1935488	       816.6 ns/op
+BenchmarkGetCloneEachTime-14             	10038126	       116.1 ns/op
+BenchmarkGetCloneEachTime-14             	10311687	       115.9 ns/op
+BenchmarkClone/cloneOnly/baseline/100k-14         	126728908	         9.504 ns/op	      16 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/baseline/100k-14         	126547254	         9.536 ns/op	      16 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/oneAlloc/100k-14         	67339276	        16.94 ns/op	      64 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/oneAlloc/100k-14         	67782566	        17.03 ns/op	      64 B/op	       1 allocs/op
+BenchmarkClone/cloneDeleteInsert/baseline/100k-14 	 1000000	      1241 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkClone/cloneDeleteInsert/baseline/100k-14 	 1000000	      1292 ns/op	    1761 B/op	      12 allocs/op
+BenchmarkClone/cloneDeleteInsert/oneAlloc/100k-14 	  782964	      1619 ns/op	    1808 B/op	      12 allocs/op
+BenchmarkClone/cloneDeleteInsert/oneAlloc/100k-14 	  909268	      1360 ns/op	    1809 B/op	      12 allocs/op
+BenchmarkClone/insertThenClone/baseline/100k-14   	 1227466	       986.2 ns/op	    1717 B/op	      13 allocs/op
+BenchmarkClone/insertThenClone/baseline/100k-14   	 1235398	      1011 ns/op	    1716 B/op	      13 allocs/op
+BenchmarkClone/insertThenClone/oneAlloc/100k-14   	 1000000	      1078 ns/op	    1717 B/op	      11 allocs/op
+BenchmarkClone/insertThenClone/oneAlloc/100k-14   	 1000000	      1062 ns/op	    1717 B/op	      11 allocs/op
+BenchmarkClone/cloneOnly/baseline/1M-14           	128276146	         9.257 ns/op	      16 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/baseline/1M-14           	127846918	         9.260 ns/op	      16 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/oneAlloc/1M-14           	82296981	        14.42 ns/op	      64 B/op	       1 allocs/op
+BenchmarkClone/cloneOnly/oneAlloc/1M-14           	81815362	        14.95 ns/op	      64 B/op	       1 allocs/op
+BenchmarkClone/cloneDeleteInsert/baseline/1M-14   	  364191	      3117 ns/op	    2254 B/op	      15 allocs/op
+BenchmarkClone/cloneDeleteInsert/baseline/1M-14   	  396000	      2666 ns/op	    2256 B/op	      15 allocs/op
+BenchmarkClone/cloneDeleteInsert/oneAlloc/1M-14   	  371037	      3521 ns/op	    2302 B/op	      15 allocs/op
+BenchmarkClone/cloneDeleteInsert/oneAlloc/1M-14   	  378620	      3522 ns/op	    2303 B/op	      15 allocs/op
+BenchmarkClone/insertThenClone/baseline/1M-14     	  539744	      2056 ns/op	    2115 B/op	      16 allocs/op
+BenchmarkClone/insertThenClone/baseline/1M-14     	  550074	      2264 ns/op	    2115 B/op	      16 allocs/op
+BenchmarkClone/insertThenClone/oneAlloc/1M-14     	  538939	      2472 ns/op	    2114 B/op	      14 allocs/op
+BenchmarkClone/insertThenClone/oneAlloc/1M-14     	  556398	      2631 ns/op	    2115 B/op	      14 allocs/op
+PASS
+ok  	btreeproto/clone	128.583s

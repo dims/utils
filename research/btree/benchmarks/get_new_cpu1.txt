@@ -1,0 +1,14 @@
+goos: darwin
+goarch: arm64
+pkg: expnew
+cpu: Apple M4 Pro
+BenchmarkStringKeyGet/degree=16         	 3007538	       393.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16         	 3167257	       370.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16         	 3221024	       374.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16         	 3244261	       375.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32         	 3321795	       365.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32         	 3257491	       365.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32         	 3309327	       374.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32         	 2818734	       377.3 ns/op	      48 B/op	       1 allocs/op
+PASS
+ok  	expnew	13.031s

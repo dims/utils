@@ -1,0 +1,26 @@
+goos: darwin
+goarch: arm64
+pkg: btreeproto/find
+cpu: Apple M4 Pro
+BenchmarkLookupBytes/Get-probe-alloc/1M-14         	 1000000	      1530 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14         	 1000000	      1522 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14         	  978919	      1409 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-alloc/1M-14         	  952389	      1194 ns/op	      64 B/op	       1 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14        	 1000000	      1159 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14        	 1000000	      1097 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14        	 1000000	      1428 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Get-probe-reused/1M-14        	 1000000	      1517 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                    	 1000000	      1505 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                    	 1000000	      1551 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                    	 1000000	      1552 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/Find/1M-14                    	 1000000	      1497 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14              	 1000000	      1345 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14              	 1000000	      1325 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14              	 1000000	      1355 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/FindBisect/1M-14              	 1000000	      1302 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                 	 1000000	      1530 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                 	 1000000	      1522 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                 	 1000000	      1523 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupBytes/GetFunc/1M-14                 	 1000000	      1504 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	btreeproto/find	31.641s

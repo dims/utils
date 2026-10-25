@@ -1,0 +1,14 @@
+BenchmarkAuditCountRevisions/n=100000-14   	     272	   4890856 ns/op
+BenchmarkAuditCountRevisions/n=1000000-14  	      16	  78632336 ns/op
+BenchmarkAuditRangeKeysOnly/n=100000-14    	     140	   9308305 ns/op
+BenchmarkAuditRangeKeysOnly/n=1000000-14   	       9	 139360648 ns/op
+BenchmarkAuditRevisionsLimit500Total/n=100000-14         	     390	   3026287 ns/op
+BenchmarkAuditRevisionsLimit500Total/n=1000000-14        	      14	  82247470 ns/op
+BenchmarkAuditWalkCurrent/n=100000-14                    	    1383	    989652 ns/op
+BenchmarkAuditWalkCurrent/n=1000000-14                   	      42	  26697392 ns/op
+BenchmarkAuditWalkAscendRange/n=100000-14                	    3345	    314259 ns/op
+BenchmarkAuditWalkAscendRange/n=1000000-14               	     127	   8651712 ns/op
+BenchmarkAuditWalkAscendGE/n=100000-14                   	    4612	    252667 ns/op
+BenchmarkAuditWalkAscendGE/n=1000000-14                  	     271	   3718327 ns/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	24.536s

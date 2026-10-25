@@ -1,0 +1,8 @@
+BenchmarkAuditCompactCurrent/n=100000-14         	       2	  15151750 ns/op
+BenchmarkAuditCompactCurrent/n=1000000-14        	       2	 311574438 ns/op
+BenchmarkAuditCompactBatched64/n=100000-14       	       2	  12058688 ns/op
+BenchmarkAuditCompactBatched64/n=1000000-14      	       2	 271312521 ns/op
+BenchmarkAuditCompactCloneWalk/n=100000-14       	       2	    308730 ns/op
+BenchmarkAuditCompactCloneWalk/n=1000000-14      	       2	   7842042 ns/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	23.741s

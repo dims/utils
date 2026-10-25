@@ -1,0 +1,53 @@
+goos: darwin
+goarch: arm64
+cpu: Apple M4 Pro
+BenchmarkStringKeyGet/degree=16-14   	 3477544	       340.1 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3437653	       343.9 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3469573	       352.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3475902	       344.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3442056	       343.6 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 2822710	       354.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3454250	       346.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=16-14   	 3354253	       372.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3532279	       339.5 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3512060	       339.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3482233	       342.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3444764	       337.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3476094	       354.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3314048	       353.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3466528	       338.8 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyGet/degree=32-14   	 3556108	       342.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  586908	      2144 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  575439	      1962 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  602202	      1946 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  599220	      1945 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  597818	      1946 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  600327	      1950 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  595503	      1971 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendPrefix-14    	  602095	      1931 ns/op	      83 B/op	       2 allocs/op
+BenchmarkStringKeyAscendRange-14     	  917702	      1297 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  937548	      1298 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  898581	      1369 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  934666	      1532 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  924499	      1464 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  917887	      1291 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  939692	      1382 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendRange-14     	  923150	      1444 ns/op	     163 B/op	       4 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20984	     57381 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20992	     57157 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20989	     57122 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20958	     57200 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20895	     58028 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20560	     57436 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20994	     57150 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyAscendScan-14      	   20968	     57084 ns/op	      82 B/op	       2 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6823	    176168 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6742	    175178 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6804	    176752 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6807	    175455 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6860	    176784 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6831	    175709 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6746	    176942 ns/op	     117 B/op	       3 allocs/op
+BenchmarkStringKeyDescendScan-14     	    6819	    176571 ns/op	     117 B/op	       3 allocs/op
+PASS
+ok  	k8s.io/utils/third_party/forked/golang/btree	75.313s

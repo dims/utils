@@ -1,0 +1,6 @@
+BenchmarkAuditTreeBuildRandomOrder/n=100000-14         	       2	  38696084 ns/op
+BenchmarkAuditTreeBuildRandomOrder/n=1000000-14        	       2	1338962188 ns/op
+BenchmarkAuditTreeBuildSortedOrder/n=100000-14         	       2	  11695208 ns/op
+BenchmarkAuditTreeBuildSortedOrder/n=1000000-14        	       2	 140354896 ns/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	6.039s

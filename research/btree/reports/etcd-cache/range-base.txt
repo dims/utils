@@ -1,0 +1,22 @@
+goos: darwin
+goarch: arm64
+pkg: go.etcd.io/etcd/cache/v3
+cpu: Apple M4 Pro
+BenchmarkAuditRange/Range-append/cnt=10-14         	 4142406	       284.8 ns/op	     392 B/op	       9 allocs/op
+BenchmarkAuditRange/Range-countThenFill/cnt=10-14  	 3497022	       344.0 ns/op	      80 B/op	       1 allocs/op
+BenchmarkAuditRange/Range-iterOnly/cnt=10-14       	 7871529	       151.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditRange/Range-append/cnt=100-14        	  970507	      1188 ns/op	    2312 B/op	      12 allocs/op
+BenchmarkAuditRange/Range-countThenFill/cnt=100-14 	  761631	      1602 ns/op	     896 B/op	       1 allocs/op
+BenchmarkAuditRange/Range-iterOnly/cnt=100-14      	 1695007	       704.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditRange/Range-append/cnt=1000-14       	  134668	      8897 ns/op	   17672 B/op	      15 allocs/op
+BenchmarkAuditRange/Range-countThenFill/cnt=1000-14         	   88383	     13525 ns/op	    8192 B/op	       1 allocs/op
+BenchmarkAuditRange/Range-iterOnly/cnt=1000-14              	  196597	      6043 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditRange/Range-append/cnt=10000-14               	   12288	     95360 ns/op	  310536 B/op	      22 allocs/op
+BenchmarkAuditRange/Range-countThenFill/cnt=10000-14        	    8961	    135339 ns/op	   81920 B/op	       1 allocs/op
+BenchmarkAuditRange/Range-iterOnly/cnt=10000-14             	   19244	     61960 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditRange/Range-append/cnt=100000-14              	    1188	   1045740 ns/op	 4496616 B/op	      32 allocs/op
+BenchmarkAuditRange/Range-countThenFill/cnt=100000-14       	     884	   1346591 ns/op	  802816 B/op	       1 allocs/op
+BenchmarkAuditRange/Range-iterOnly/cnt=100000-14            	    1933	    626777 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditRange/FromKey-fullScan-14                     	    1609	    842174 ns/op	 4496576 B/op	      30 allocs/op
+PASS
+ok  	go.etcd.io/etcd/cache/v3	24.522s

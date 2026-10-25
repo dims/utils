@@ -1,0 +1,13 @@
+goos: darwin
+goarch: arm64
+pkg: go.etcd.io/etcd/cache/v3
+cpu: Apple M4 Pro
+BenchmarkAuditItemType/Get/ptr-allocProbe-14         	 1907460	       656.3 ns/op	      72 B/op	       2 allocs/op
+BenchmarkAuditItemType/Get/val-stringProbe-14        	 1692519	       647.3 ns/op	      48 B/op	       1 allocs/op
+BenchmarkAuditItemType/Get/val-unsafeProbe-14        	 1719301	       718.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditItemType/AscendRange1000/ptr-14        	  189283	      6370 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditItemType/AscendRange1000/val-14        	  171351	      7007 ns/op	       0 B/op	       0 allocs/op
+BenchmarkAuditItemType/CloneThenInsert/ptr-14        	 1006450	      1408 ns/op	    2780 B/op	      12 allocs/op
+BenchmarkAuditItemType/CloneThenInsert/val-14        	  598840	      2191 ns/op	    6030 B/op	      12 allocs/op
+PASS
+ok  	go.etcd.io/etcd/cache/v3	11.976s

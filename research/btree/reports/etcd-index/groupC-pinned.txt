@@ -1,0 +1,10 @@
+BenchmarkAuditGetHit/n=100000-14             	 2626351	       446.0 ns/op	      64 B/op	       1 allocs/op
+BenchmarkAuditGetHit/n=1000000-14            	  907363	      1230 ns/op	      64 B/op	       1 allocs/op
+BenchmarkAuditPutExisting/n=100000-14        	 2868870	       426.3 ns/op	     117 B/op	       1 allocs/op
+BenchmarkAuditPutExisting/n=1000000-14       	  913670	      1330 ns/op	      96 B/op	       1 allocs/op
+BenchmarkAuditTreeInsertNewOneDescent/n=100000-14         	 1000000	      1234 ns/op	      82 B/op	       1 allocs/op
+BenchmarkAuditTreeInsertNewOneDescent/n=1000000-14        	 1000000	      1617 ns/op	      83 B/op	       1 allocs/op
+BenchmarkAuditTreeInsertNewTwoDescents/n=100000-14        	 1000000	      1729 ns/op	      82 B/op	       1 allocs/op
+BenchmarkAuditTreeInsertNewTwoDescents/n=1000000-14       	 1000000	      1779 ns/op	      83 B/op	       1 allocs/op
+PASS
+ok  	go.etcd.io/etcd/server/v3/storage/mvcc	27.159s
